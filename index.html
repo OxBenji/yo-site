@@ -46,13 +46,6 @@
     box-shadow:0 0 20px rgba(255,0,140,.5)}
   @media(max-width:680px){.navlinks a:not(.buy){display:none}}
 
-  /* marquee */
-  .marquee{background:var(--yo);color:#000;font-family:'Anton';font-size:18px;letter-spacing:1px;
-    text-transform:lowercase;padding:9px 0;overflow:hidden;white-space:nowrap;border-bottom:3px solid #000}
-  .mtrack{display:inline-block;animation:slide 22s linear infinite}
-  .mtrack span{margin:0 26px}
-  @keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-
   /* hero */
   .hero{position:relative;text-align:center;padding:64px 0 54px;
     background:radial-gradient(80% 60% at 50% 18%, rgba(255,0,140,.22), transparent 60%)}
@@ -220,8 +213,6 @@
   </div>
 </div></nav>
 
-<div class="marquee"><div class="mtrack" id="mq"></div></div>
-
 <header id="top" class="hero"><div class="wrap">
   <div class="herologo" role="img" aria-label="YO"></div>
   <h1>say it back.</h1>
@@ -311,9 +302,7 @@
 <input type="file" id="file" accept="image/*">
 
 <script>
-/* ---------- marquee + say it back ---------- */
-const MQ="yo · say it back · you already know · if you know you yo · the meta is hello · ";
-document.getElementById('mq').innerHTML="<span>"+MQ.repeat(6)+"</span><span>"+MQ.repeat(6)+"</span>";
+/* ---------- say it back ---------- */
 const YO_CONFIG={SUPABASE_URL:'',SUPABASE_ANON_KEY:''}; // paste your supabase url + anon key to enable the global tally
 let yoCount=0;
 function say(){
