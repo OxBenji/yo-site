@@ -258,7 +258,7 @@
   <div class="wall" id="wall"><div class="wallempty">be the first to say it back</div></div>
 </div></section>
 
-<canvas id="card" width="1200" height="675" style="display:none"></canvas>
+<canvas id="card" width="1080" height="1080" style="display:none"></canvas>
 
 <section id="make"><div class="wrap">
   <p class="eyebrow">the identity system</p>
@@ -338,23 +338,41 @@ async function loadWall(){if(!YO_CONFIG.SUPABASE_URL){renderWall(localWall);retu
 /* ---- share card ---- */
 let logoImg=null;
 (function(){const v=getComputedStyle(document.documentElement).getPropertyValue('--logo');const m=v.match(/url\(["']?(.*?)["']?\)/);if(m){logoImg=new Image();logoImg.src=m[1];}})();
-function buildCard(){const cv=document.getElementById('card'),x=cv.getContext('2d'),W=1200,H=675;
-  x.fillStyle='#000';x.fillRect(0,0,W,H);
-  const g=x.createRadialGradient(W*0.28,H*0.45,40,W*0.28,H*0.5,W*0.75);g.addColorStop(0,'rgba(255,36,0,.45)');g.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=g;x.fillRect(0,0,W,H);
-  x.fillStyle='rgba(255,36,0,.10)';for(let yy=0;yy<H;yy+=22)for(let xx=0;xx<W;xx+=22){x.beginPath();x.arc(xx,yy,1.6,0,7);x.fill();}
-  const ax=210,ay=H/2,ar=150;
-  x.save();x.beginPath();x.arc(ax,ay,ar,0,7);x.clip();
+function buildCard(){const cv=document.getElementById('card'),x=cv.getContext('2d'),S=1080;
+  cv.width=S;cv.height=S;
   const av=document.getElementById('yoOut');
-  if(av&&av.src&&av.src.startsWith('data:')){try{x.drawImage(av,ax-ar,ay-ar,ar*2,ar*2);}catch(e){}}
-  else if(logoImg&&logoImg.complete){x.drawImage(logoImg,ax-ar,ay-ar,ar*2,ar*2);}
-  else{x.fillStyle='#111';x.fillRect(ax-ar,ay-ar,ar*2,ar*2);}
-  x.restore();x.lineWidth=8;x.strokeStyle='#FF2400';x.beginPath();x.arc(ax,ay,ar,0,7);x.stroke();
-  const h=handle(),who=h?('@'+h):'you';x.textAlign='left';
-  x.fillStyle='#fff';x.font="bold 54px 'Space Grotesk', sans-serif";x.fillText(who,410,H/2-66);
-  x.fillStyle='#FF2400';x.font="92px 'Anton', sans-serif";x.fillText('said it back.',410,H/2+22);
-  x.fillStyle='#b79aac';x.font="28px 'Space Mono', monospace";x.fillText('#'+yoCount.toLocaleString()+' · the meta is hello',410,H/2+80);
-  if(logoImg&&logoImg.complete){const lw=140;x.drawImage(logoImg,W-lw-46,H-lw-40,lw,lw);}
-  x.fillStyle='#7a6470';x.font="22px 'Space Mono', monospace";x.fillText('say it back · yo',410,H-48);
+  const hasYo=av&&av.src&&av.src.startsWith('data:');
+  if(hasYo){return buildYoCard(cv,x,S,av);}
+  return buildFallbackCard(cv,x,S);}
+function buildYoCard(cv,x,S,av){
+  /* draw yo'd image edge-to-edge, cover the square */
+  x.fillStyle='#000';x.fillRect(0,0,S,S);
+  try{const iw=av.naturalWidth||av.width,ih=av.naturalHeight||av.height;
+    const scale=Math.max(S/iw,S/ih),dw=iw*scale,dh=ih*scale;
+    x.drawImage(av,(S-dw)/2,(S-dh)/2,dw,dh);}catch(e){}
+  /* bottom gradient for readability */
+  const g=x.createLinearGradient(0,S-180,0,S);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,.65)');
+  x.fillStyle=g;x.fillRect(0,S-180,S,180);
+  /* YO medallion — bottom-right */
+  if(logoImg&&logoImg.complete){const ls=72;x.drawImage(logoImg,S-ls-24,S-ls-24,ls,ls);}
+  else{x.fillStyle='#FF2400';x.beginPath();x.arc(S-56,S-56,32,0,7);x.fill();
+    x.fillStyle='#000';x.font="bold 28px 'Luckiest Guy',cursive";x.textAlign='center';x.fillText('YO',S-56,S-47);x.textAlign='left';}
+  /* handle tag — bottom-left */
+  const h=handle();
+  if(h){x.font="bold 16px 'Space Mono',monospace";x.fillStyle='rgba(255,255,255,.85)';x.textAlign='left';
+    x.fillText('@'+h+' · got yo\'d',24,S-32);}
+  return cv;}
+function buildFallbackCard(cv,x,S){
+  x.fillStyle='#000';x.fillRect(0,0,S,S);
+  const g=x.createRadialGradient(S*0.5,S*0.38,40,S*0.5,S*0.42,S*0.7);g.addColorStop(0,'rgba(255,36,0,.45)');g.addColorStop(1,'rgba(0,0,0,0)');x.fillStyle=g;x.fillRect(0,0,S,S);
+  x.fillStyle='rgba(255,36,0,.10)';for(let yy=0;yy<S;yy+=22)for(let xx=0;xx<S;xx+=22){x.beginPath();x.arc(xx,yy,1.6,0,7);x.fill();}
+  if(logoImg&&logoImg.complete){const ls=260;x.drawImage(logoImg,(S-ls)/2,S*0.12,ls,ls);}
+  const h=handle(),who=h?('@'+h):'you';x.textAlign='center';
+  x.fillStyle='#fff';x.font="bold 48px 'Space Grotesk',sans-serif";x.fillText(who,S/2,S*0.58);
+  x.fillStyle='#FF2400';x.font="80px 'Anton',sans-serif";x.fillText('said it back.',S/2,S*0.68);
+  x.fillStyle='#b79aac';x.font="24px 'Space Mono',monospace";x.fillText('#'+yoCount.toLocaleString()+' · the meta is hello',S/2,S*0.75);
+  x.fillStyle='#7a6470';x.font="20px 'Space Mono',monospace";x.fillText('say it back · yo',S/2,S-40);
+  x.textAlign='left';
   return cv;}
 function downloadCard(){const cv=buildCard();const a=document.createElement('a');a.download='yo-said-it-back.png';a.href=cv.toDataURL('image/png');a.click();}
 function postX(){const h=handle();const t='yo. say it back.'+(h?' — @'+h:'')+'\n\n#'+yoCount.toLocaleString()+' and counting. the meta is hello.';window.open('https://twitter.com/intent/tweet?text='+encodeURIComponent(t),'_blank');}
