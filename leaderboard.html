@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YO — leaderboard</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Luckiest+Guy&family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --yo:#FF008C;
+    --ink:#000000;
+    --panel:#141016;
+    --line:#2a1f28;
+    --bone:#ffffff;
+    --mut:#b79aac;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--bone);font-family:'Space Grotesk',sans-serif;min-height:100vh}
+  .grain:before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;opacity:.06;
+    background:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='256' height='256' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")}
+  .wrap{max-width:640px;margin:0 auto;padding:0 20px}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:10;padding:14px 0;background:rgba(0,0,0,.85);backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--line)}
+  .navin{display:flex;align-items:center}
+  .navlogo{width:48px;height:48px;background:url("yo-logo.png") center/contain no-repeat;filter:drop-shadow(0 0 10px rgba(255,0,140,.55))}
+  .navlinks{margin-left:auto;display:flex;gap:22px;font-size:13.5px;font-weight:600;color:var(--mut)}
+  .navlinks a{color:inherit;text-decoration:none;font-family:'Space Grotesk'}
+  .navlinks a:hover{color:var(--bone)}
+  .navlinks .back{color:var(--ink);background:var(--yo);padding:7px 15px;border-radius:99px;font-weight:700;text-decoration:none}
+  .navlinks .back:hover{background:#fff;color:#000}
+
+  /* header */
+  .hdr{padding:60px 0 40px;text-align:center}
+  .eyebrow{font-family:'Space Mono';font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--yo);margin:0 0 10px}
+  h1{font-family:'Luckiest Guy',cursive;font-size:clamp(36px,10vw,64px);color:var(--yo);
+    -webkit-text-stroke:2px #000;text-shadow:0 0 40px rgba(255,0,140,.5);margin:0}
+  .sub{color:var(--mut);font-size:15px;margin-top:8px}
+
+  /* table */
+  .board{margin-top:10px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel)}
+  .row{display:grid;grid-template-columns:52px 1fr auto;align-items:center;padding:14px 18px;
+    border-bottom:1px solid var(--line);gap:12px;transition:background .15s}
+  .row:last-child{border-bottom:0}
+  .row:hover{background:rgba(255,0,140,.06)}
+  .rank{font-family:'Luckiest Guy';font-size:22px;color:var(--yo);text-align:center;
+    -webkit-text-stroke:1px #000}
+  .row:nth-child(1) .rank{font-size:28px;text-shadow:0 0 16px rgba(255,0,140,.6)}
+  .row:nth-child(2) .rank{font-size:25px}
+  .row:nth-child(3) .rank{font-size:23px}
+  .name{font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .name small{color:var(--mut);font-weight:400;font-size:12px;margin-left:6px;font-family:'Space Mono'}
+  .yos{font-family:'Luckiest Guy';font-size:20px;color:var(--yo);-webkit-text-stroke:1px #000;white-space:nowrap}
+  .yos span{font-family:'Space Mono';font-size:11px;color:var(--mut);-webkit-text-stroke:0;margin-left:4px}
+
+  .empty{padding:60px 20px;text-align:center;color:#6e5b66;font-style:italic;font-size:14px}
+  .refresh{text-align:center;margin:18px 0 40px;color:#6e5b66;font-size:12px;font-family:'Space Mono'}
+
+  footer{padding:40px 0 30px;border-top:1px solid var(--line);text-align:center}
+  .footlogo{width:72px;height:72px;margin:0 auto;background:url("yo-logo.png") center/contain no-repeat;
+    filter:drop-shadow(0 0 20px rgba(255,0,140,.55))}
+  .disc{color:#5f4f59;font-size:11px;max-width:460px;margin:14px auto 0;line-height:1.5}
+</style>
+</head>
+<body class="grain">
+
+<nav><div class="wrap navin">
+  <a href="/" class="navlogo" aria-label="YO"></a>
+  <div class="navlinks">
+    <a href="/">home</a>
+    <a href="/" class="back">say it back</a>
+  </div>
+</div></nav>
+
+<div class="wrap">
+  <div class="hdr">
+    <p class="eyebrow">the scoreboard</p>
+    <h1>yo leaderboard.</h1>
+    <p class="sub">who's said yo the most in the TG. updated live.</p>
+  </div>
+
+  <div class="board" id="board">
+    <div class="empty">loading...</div>
+  </div>
+
+  <div class="refresh" id="refresh"></div>
+</div>
+
+<footer><div class="wrap">
+  <div class="footlogo" role="img" aria-label="YO"></div>
+  <p class="disc">$YO is a meme coin with no intrinsic value. this is not financial advice. say it back.</p>
+</div></footer>
+
+<script>
+// ---- CONFIG: paste your Supabase anon credentials ----
+const SUPABASE_URL = '';   // e.g. https://abc123.supabase.co
+const SUPABASE_ANON = '';  // your anon key
+
+async function loadLeaderboard() {
+  const board = document.getElementById('board');
+  if (!SUPABASE_URL || !SUPABASE_ANON) {
+    board.innerHTML = '<div class="empty">leaderboard not configured yet. coming soon.</div>';
+    return;
+  }
+  try {
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/tg_yos?select=username,display_name,yo_count&order=yo_count.desc&limit=50',
+      { headers: { apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON } }
+    );
+    const data = await res.json();
+    if (!Array.isArray(data) || !data.length) {
+      board.innerHTML = '<div class="empty">no yo\'s yet. get in the TG and say yo.</div>';
+      return;
+    }
+    board.innerHTML = data.map(function(r, i) {
+      var name = r.display_name || 'anon';
+      var handle = r.username ? '<small>@' + esc(r.username) + '</small>' : '';
+      return '<div class="row">'
+        + '<div class="rank">' + (i + 1) + '</div>'
+        + '<div class="name">' + esc(name) + handle + '</div>'
+        + '<div class="yos">' + r.yo_count.toLocaleString() + '<span>yo\'s</span></div>'
+        + '</div>';
+    }).join('');
+    document.getElementById('refresh').textContent = 'last updated: ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    board.innerHTML = '<div class="empty">failed to load. try refreshing.</div>';
+  }
+}
+
+function esc(s) {
+  return (s || '').replace(/[<>&"]/g, function(c) {
+    return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c];
+  });
+}
+
+loadLeaderboard();
+setInterval(loadLeaderboard, 15000);
+</script>
+</body>
+</html>
