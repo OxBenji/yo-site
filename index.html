@@ -229,10 +229,12 @@
 
 <section id="manifesto"><div class="wrap">
   <p class="eyebrow">the manifesto</p>
-  <h2 class="h2">the meta is hello.</h2>
-  <p class="lead">before tickers, before language, there was the call and the answer. one person says <b>yo</b>. another says it back. that's recognition. that's the whole religion.</p>
-  <div class="pull">"yo" in english. <em>"yo" = I, me, myself</em> in spanish.<br>the greeting and the self. same word.</div>
-  <p class="lead">we're not flipping the stock market. we're not selling you a mindset. <b>YO has no narrative on purpose</b> — the meta is hello. you don't get onboarded. you just get yo'd until you yo back. PvE. no enemy. just the people who answer.</p>
+  <h2 class="h2">What is YO?</h2>
+  <p class="lead">In English, YO is a greeting. In Spanish, YO means "I."</p>
+  <p class="lead">The greeting and the self. Same word.</p>
+  <p class="lead">Everybody knows it. Everybody uses it.</p>
+  <p class="lead">A hello. A reaction. A question. A celebration.</p>
+  <div class="pull"><em>One word. Infinite meanings.</em></div>
 </div></section>
 
 <section id="loop"><div class="wrap">
@@ -313,7 +315,11 @@ function say(){
   p.style.fontSize=(28+Math.random()*26)+'px'; sib.appendChild(p);
   setTimeout(()=>p.remove(),1100);
   sayYo();
+  /* scroll to the ritual section if triggered from hero */
+  const loop=document.getElementById('loop');
+  if(loop&&!isElementInViewport(loop))loop.scrollIntoView({behavior:'smooth',block:'center'});
 }
+function isElementInViewport(el){const r=el.getBoundingClientRect();return r.top<window.innerHeight&&r.bottom>0;}
 function handle(){return (document.getElementById('handle').value||'').trim().replace(/^@+/,'').slice(0,24);}
 let localWall=[];
 function esc(s){return (s||'').replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));}
