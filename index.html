@@ -107,6 +107,21 @@
     20%{opacity:1;transform:translateY(-10px) scale(1.1)}
     100%{transform:translateY(-130px) scale(1);opacity:0}}
 
+  /* milestone flash */
+  .ms-flash{position:fixed;inset:0;z-index:50;pointer-events:none;
+    background:radial-gradient(circle at 50% 50%,rgba(255,36,0,.28),rgba(255,36,0,.08) 60%,transparent 80%);
+    animation:msFlash .8s ease-out forwards}
+  @keyframes msFlash{0%{opacity:1}100%{opacity:0}}
+  .ms-bump{animation:msBump .5s ease-out}
+  @keyframes msBump{0%{transform:scale(1)}30%{transform:scale(1.25)}100%{transform:scale(1)}}
+  .ms-toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);z-index:51;
+    background:rgba(0,0,0,.85);border:1px solid rgba(255,36,0,.5);color:#fff;
+    font:700 14px 'Space Grotesk',sans-serif;padding:10px 22px;border-radius:99px;
+    box-shadow:0 0 20px rgba(255,36,0,.3);animation:msToast 2.4s ease-out forwards;pointer-events:none}
+  @keyframes msToast{0%{opacity:0;transform:translateX(-50%) translateY(10px)}
+    12%{opacity:1;transform:translateX(-50%) translateY(0)}
+    75%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}
+
   /* medallion colorways */
   .ways{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px;margin-top:26px}
   .med{text-align:center}
@@ -317,8 +332,21 @@
 /* ---------- say it back ---------- */
 const YO_CONFIG={SUPABASE_URL:'',SUPABASE_ANON_KEY:''}; // paste your supabase url + anon key to enable the global tally
 let yoCount=0;
+let lastMilestone=0;
+function getMilestoneStep(n){if(n<1000)return 100;if(n<10000)return 1000;return 10000;}
+function checkMilestone(prev,cur){
+  const step=getMilestoneStep(cur);const prevM=Math.floor(prev/step)*step;const curM=Math.floor(cur/step)*step;
+  if(curM>prevM&&curM>0)fireMilestone(curM);}
+function fireMilestone(n){
+  const fl=document.createElement('div');fl.className='ms-flash';document.body.appendChild(fl);
+  setTimeout(()=>fl.remove(),900);
+  const ct=document.getElementById('count');ct.classList.remove('ms-bump');void ct.offsetWidth;ct.classList.add('ms-bump');
+  const t=document.createElement('div');t.className='ms-toast';
+  t.textContent='\uD83D\uDD34 '+n.toLocaleString()+' — say it back';document.body.appendChild(t);
+  setTimeout(()=>t.remove(),2600);}
 function say(){
-  yoCount++; const el=document.getElementById('count'); el.textContent=yoCount.toLocaleString();
+  const prev=yoCount;yoCount++;checkMilestone(prev,yoCount);
+  const el=document.getElementById('count'); el.textContent=yoCount.toLocaleString();
   const sib=document.querySelector('.sib');
   const p=document.createElement('div'); p.className='pop'; p.textContent='YO';
   p.style.left=(20+Math.random()*60)+'%'; p.style.bottom='70px';
@@ -340,7 +368,7 @@ function renderWall(rows){const w=document.getElementById('wall');if(!rows||!row
 async function sayYo(){const h=handle();
   if(!YO_CONFIG.SUPABASE_URL){localWall.unshift({handle:h,created_at:Date.now()});renderWall(localWall);return;}
   try{const r=await fetch(YO_CONFIG.SUPABASE_URL+'/rest/v1/rpc/say_yo',{method:'POST',headers:{apikey:YO_CONFIG.SUPABASE_ANON_KEY,Authorization:'Bearer '+YO_CONFIG.SUPABASE_ANON_KEY,'Content-Type':'application/json'},body:JSON.stringify({p_handle:h||null})});
-    const v=await r.json();if(typeof v==='number'){yoCount=v;document.getElementById('count').textContent=v.toLocaleString();}loadWall();}catch(e){}}
+    const v=await r.json();if(typeof v==='number'){const prev=yoCount;yoCount=v;checkMilestone(prev,yoCount);document.getElementById('count').textContent=v.toLocaleString();}loadWall();}catch(e){}}
 async function loadWall(){if(!YO_CONFIG.SUPABASE_URL){renderWall(localWall);return;}
   try{const r=await fetch(YO_CONFIG.SUPABASE_URL+'/rest/v1/yo_wall?select=handle,created_at&order=created_at.desc&limit=40',{headers:{apikey:YO_CONFIG.SUPABASE_ANON_KEY,Authorization:'Bearer '+YO_CONFIG.SUPABASE_ANON_KEY}});
     const d=await r.json();if(Array.isArray(d))renderWall(d);}catch(e){}}
@@ -390,7 +418,7 @@ function copyLink(btn){navigator.clipboard&&navigator.clipboard.writeText(window
 function boot(){loadCount();loadWall();setInterval(()=>{loadCount();loadWall();},10000);}
 async function loadCount(){
   if(!YO_CONFIG.SUPABASE_URL)return;
-  try{const r=await fetch(YO_CONFIG.SUPABASE_URL+'/rest/v1/counters?id=eq.yo&select=value',{headers:{apikey:YO_CONFIG.SUPABASE_ANON_KEY,Authorization:'Bearer '+YO_CONFIG.SUPABASE_ANON_KEY}});const d=await r.json();if(d&&d[0]){yoCount=d[0].value;document.getElementById('count').textContent=yoCount.toLocaleString();}}catch(e){}
+  try{const r=await fetch(YO_CONFIG.SUPABASE_URL+'/rest/v1/counters?id=eq.yo&select=value',{headers:{apikey:YO_CONFIG.SUPABASE_ANON_KEY,Authorization:'Bearer '+YO_CONFIG.SUPABASE_ANON_KEY}});const d=await r.json();if(d&&d[0]){const prev=yoCount;yoCount=d[0].value;if(prev>0)checkMilestone(prev,yoCount);document.getElementById('count').textContent=yoCount.toLocaleString();}}catch(e){}
 }
 boot();
 function copyCA(){const raw=document.getElementById('ca').textContent.replace('CA: ','').trim();
