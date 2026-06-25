@@ -216,7 +216,7 @@
 <header id="top" class="hero"><div class="wrap">
   <div class="herologo" role="img" aria-label="YO"></div>
   <h1>say it back.</h1>
-  <p>the first word you ever typed online. one word, infinite meanings. no roadmap, no promises — just the call. someone says yo, you say yo. that's the whole movement.</p>
+  <p>one word, infinite meanings. no roadmap, no promises — just the call. someone says yo, you say yo. that's the whole movement.</p>
   <div class="cta">
     <button class="btn fill" onclick="say()">say it back</button>
     <a class="btn line" href="#make">get yoified</a>
@@ -251,6 +251,7 @@
     <div class="sharebtns">
       <button class="btn line sm" onclick="downloadCard()">share card</button>
       <button class="btn line sm" onclick="postX()">post to X</button>
+      <button class="btn line sm" onclick="copyLink(this)">copy link</button>
     </div>
   </div>
 
@@ -376,6 +377,7 @@ function buildFallbackCard(cv,x,S){
   return cv;}
 function downloadCard(){const cv=buildCard();const a=document.createElement('a');a.download='yo-said-it-back.png';a.href=cv.toDataURL('image/png');a.click();}
 function postX(){const h=handle();const t='yo. say it back.'+(h?' — @'+h:'')+'\n\n#'+yoCount.toLocaleString()+' and counting. the meta is hello.';window.open('https://twitter.com/intent/tweet?text='+encodeURIComponent(t),'_blank');}
+function copyLink(btn){navigator.clipboard&&navigator.clipboard.writeText(window.location.href);const o=btn.textContent;btn.textContent='copied!';setTimeout(()=>btn.textContent=o,1200);}
 function boot(){loadCount();loadWall();setInterval(()=>{loadCount();loadWall();},10000);}
 async function loadCount(){
   if(!YO_CONFIG.SUPABASE_URL)return;
