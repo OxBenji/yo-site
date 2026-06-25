@@ -208,7 +208,7 @@
   <a href="#top" class="navlogo" aria-label="YO"></a>
   <div class="navlinks">
     <a href="#manifesto">manifesto</a>
-    <a href="#make">yoify</a>
+    <a href="#make">get yo'd</a>
     <a href="#" class="buy">buy $YO</a>
   </div>
 </div></nav>
@@ -219,7 +219,7 @@
   <p>one word, infinite meanings. no roadmap, no promises — just the call. someone says yo, you say yo. that's the whole movement.</p>
   <div class="cta">
     <button class="btn fill" onclick="say()">say it back</button>
-    <a class="btn line" href="#make">get yoified</a>
+    <a class="btn line" href="#make">get yo'd</a>
   </div>
   <div class="ca">
     <code id="ca">CA: coming soon — verify before you ape</code>
@@ -263,8 +263,8 @@
 
 <section id="make"><div class="wrap">
   <p class="eyebrow">the identity system</p>
-  <h2 class="h2">get yoified.</h2>
-  <p class="lead">upload any image — your face, your cat, your pfp — and it gets dragged into the YO universe. magenta, chain, shades, the medallion. <b>same you. yoified.</b></p>
+  <h2 class="h2">get yo'd.</h2>
+  <p class="lead">upload any image — your face, your cat, your pfp — and it gets dragged into the YO universe. chain, shades, the medallion. <b>same you. yo'd.</b></p>
 
   <div class="maker">
     <div>
@@ -272,16 +272,16 @@
         <div class="ph" id="yoPh"><b>drop your image</b>face · cat · frog · pfp · anything</div>
       </div>
       <div class="yo-row">
-        <button class="btn fill" id="yoBtn" onclick="yoify()" style="display:none">yoify</button>
+        <button class="btn fill" id="yoBtn" onclick="yoify()" style="display:none">yo me</button>
       </div>
     </div>
     <div>
       <div class="yo-stage" id="yoStage" style="display:none">
-        <img id="yoOut" alt="yoified">
-        <div class="yo-load" id="yoLoad" style="display:none"><div><div class="ring"></div>yoifying… ~10–30s</div></div>
+        <img id="yoOut" alt="yo'd">
+        <div class="yo-load" id="yoLoad" style="display:none"><div><div class="ring"></div>yo'ing… ~10–30s</div></div>
       </div>
       <div class="yo-row" id="yoActions" style="display:none">
-        <a class="btn fill" id="yoDl" download="yoified.png" href="#">download</a>
+        <a class="btn fill" id="yoDl" download="yod.png" href="#">download</a>
         <button class="btn line" onclick="yoify()">regenerate</button>
         <button class="btn line" onclick="yoReset()">start over</button>
       </div>
@@ -390,8 +390,8 @@ function copyCA(){const t=document.getElementById('ca').textContent.replace('CA:
 
 
 
-/* ================= YOIFY ================= */
-// paste your deployed YOIFY app's public endpoint here after you deploy it:
+/* ================= GET YO'D ================= */
+// paste your deployed yo'd API endpoint here:
 const YOIFY_API = "https://yoify.vercel.app/api/yoify-public";
 let yoSrc=null;
 document.getElementById('yoFile').addEventListener('change',e=>{
@@ -409,7 +409,7 @@ async function yoify(){
   const stage=document.getElementById('yoStage'),load=document.getElementById('yoLoad'),note=document.getElementById('yoNote');
   stage.style.display='';load.style.display='grid';note.textContent='';
   document.getElementById('yoActions').style.display='none';
-  if(!YOIFY_API){load.style.display='none';note.textContent='⚙ set YOIFY_API in the code to your deployed yoify endpoint to enable this.';return;}
+  if(!YOIFY_API){load.style.display='none';note.textContent='⚙ set YOIFY_API in the code to enable get yo\'d.';return;}
   try{
     const res=await fetch(YOIFY_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:yoSrc})});
     const d=await res.json();
