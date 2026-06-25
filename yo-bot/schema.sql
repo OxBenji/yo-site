@@ -33,3 +33,16 @@ create policy "public read" on tg_yos
 
 -- Index for leaderboard queries
 create index if not exists idx_tg_yos_count on tg_yos (yo_count desc);
+
+-- Log table: one row per yo (for time-based stats)
+create table if not exists tg_yo_log (
+  id         bigserial primary key,
+  user_id    bigint not null,
+  username   text,
+  created_at timestamptz default now()
+);
+
+alter table tg_yo_log enable row level security;
+create policy "public read log" on tg_yo_log for select using (true);
+create index if not exists idx_tg_yo_log_created on tg_yo_log (created_at desc);
+create index if not exists idx_tg_yo_log_user_created on tg_yo_log (user_id, created_at desc);
