@@ -14,43 +14,52 @@ if (!TOKEN || !SUPABASE_URL || !SUPABASE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const bot = new TelegramBot(TOKEN, { polling: true });
 
-// Match "yo" as a standalone word (case-insensitive)
-const YO_RE = /\byo\b/i;
+// Match "yo" variants (yo, yooo, yyoo) as a standalone word
+const YO_RE = /\by+o+\b/i;
+
+// 60s per-user cooldown
+const cooldowns = new Map();
+const COOLDOWN_MS = 60_000;
 
 bot.on("message", async (msg) => {
   if (!msg.text || !YO_RE.test(msg.text)) return;
 
   const userId = msg.from.id;
+  const now = Date.now();
+  const lastYo = cooldowns.get(userId) || 0;
+  if (now - lastYo < COOLDOWN_MS) return; // silently skip
+  cooldowns.set(userId, now);
+
   const username = msg.from.username || null;
   const displayName =
     [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ") ||
     null;
+  const handle = username || displayName || null;
 
   try {
-    const [{ data, error }, _log] = await Promise.all([
+    // Shared count: call the SAME say_yo RPC the website uses
+    // Also log to tg_yo_log for /stats time windows + tg_yos for /leaderboard
+    const [{ data: globalCount, error }, _log, _tg] = await Promise.all([
+      supabase.rpc("say_yo", { p_handle: handle }),
+      supabase.from("tg_yo_log").insert({ user_id: userId, username }),
       supabase.rpc("say_tg_yo", {
         p_user_id: userId,
         p_username: username,
         p_display_name: displayName,
       }),
-      supabase.from("tg_yo_log").insert({ user_id: userId, username }),
     ]);
 
     if (error) {
-      console.error("supabase rpc error:", error.message);
+      console.error("say_yo rpc error:", error.message);
       return;
     }
 
-    const count = data;
-    // Reply sparingly — only on milestone counts or first yo
-    if (count === 1) {
-      bot.sendMessage(msg.chat.id, `yo. welcome. that's your first.`, {
-        reply_to_message_id: msg.message_id,
-      });
-    } else if (count % 100 === 0) {
+    const count = typeof globalCount === "number" ? globalCount : null;
+    // Reply sparingly — only on milestone global counts
+    if (count && count % 100 === 0) {
       bot.sendMessage(
         msg.chat.id,
-        `yo. ${displayName || "anon"} just hit ${count} yo's.`,
+        `🔴 ${count.toLocaleString()} yo's — ${displayName || "anon"} said it back.`,
         { reply_to_message_id: msg.message_id }
       );
     }
@@ -59,7 +68,7 @@ bot.on("message", async (msg) => {
   }
 });
 
-// /leaderboard — top 10
+// /leaderboard — top 10 (still uses tg_yos for per-user ranking)
 bot.onText(/\/leaderboard/, async (msg) => {
   try {
     const { data, error } = await supabase
@@ -91,7 +100,7 @@ bot.onText(/\/leaderboard/, async (msg) => {
   }
 });
 
-// /myyo — personal count
+// /myyo — personal count (from tg_yos)
 bot.onText(/\/myyo/, async (msg) => {
   try {
     const { data } = await supabase
@@ -125,11 +134,14 @@ async function countSince(since) {
 }
 
 async function allTimeCount() {
+  // Read from the shared global counter (same as website)
   const { data, error } = await supabase
-    .from("tg_yos")
-    .select("yo_count");
+    .from("counters")
+    .select("value")
+    .eq("id", "yo")
+    .single();
   if (error) throw error;
-  return (data || []).reduce((s, r) => s + (r.yo_count || 0), 0);
+  return data?.value || 0;
 }
 
 async function loudestSince(since) {
