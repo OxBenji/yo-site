@@ -21,6 +21,13 @@ const YO_RE = /\by+o+\b/i;
 const cooldowns = new Map();
 const COOLDOWN_MS = 60_000;
 
+// first yo of the day tracking (resets at UTC midnight)
+let firstYoToday = null; // { date: 'YYYY-MM-DD', userId, name, announced: bool }
+
+function utcDateStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 bot.on("message", async (msg) => {
   if (!msg.text || !YO_RE.test(msg.text)) return;
 
@@ -55,11 +62,20 @@ bot.on("message", async (msg) => {
     }
 
     const count = typeof globalCount === "number" ? globalCount : null;
-    // Reply sparingly — only on milestone global counts
+
+    // first yo of the day crown
+    const today = utcDateStr();
+    if (!firstYoToday || firstYoToday.date !== today) {
+      const who = username ? `@${username}` : displayName || "someone";
+      firstYoToday = { date: today, userId, name: who, announced: true };
+      bot.sendMessage(msg.chat.id, `👑 first yo of the day — ${who}. say it back.`);
+    }
+
+    // milestone shoutouts
     if (count && count % 100 === 0) {
       bot.sendMessage(
         msg.chat.id,
-        `🔴 ${count.toLocaleString()} yo's — ${displayName || "anon"} said it back.`,
+        `🔴 ${count.toLocaleString()} yo's. say it back.`,
         { reply_to_message_id: msg.message_id }
       );
     }
@@ -221,6 +237,35 @@ bot.onText(/\/stats/, async (msg) => {
     bot.sendMessage(msg.chat.id, text);
   } catch (err) {
     console.error("stats error:", err.message);
+  }
+});
+
+// /start and /help
+const HELP_TEXT = `🔴 yo.
+
+say yo in the chat. that's it. every yo counts globally — same number on the site and here.
+
+commands:
+/stats — full yo summary
+/today — yo's said today
+/week — this week
+/month — this month
+/leaderboard — top 10 yo'ers
+/myyo — your personal count
+
+one word. infinite meanings. say it back.`;
+
+bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, HELP_TEXT));
+bot.onText(/\/help/, (msg) => bot.sendMessage(msg.chat.id, HELP_TEXT));
+
+// auto-greet new members
+bot.on("new_chat_members", (msg) => {
+  for (const member of msg.new_chat_members) {
+    if (member.is_bot) continue;
+    const name = member.username
+      ? `@${member.username}`
+      : member.first_name || "anon";
+    bot.sendMessage(msg.chat.id, `yo ${name}. you said it back. you're in. 🔴`);
   }
 });
 
