@@ -4,9 +4,14 @@ import { createClient } from "@supabase/supabase-js";
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const LEADERBOARD_URL = process.env.LEADERBOARD_URL || "";
+const SITE_URL = process.env.SITE_URL || "https://justsayyo.xyz";
+const LEADERBOARD_URL = process.env.LEADERBOARD_URL || `${SITE_URL}/leaderboard.html`;
 let cachedCA = process.env.CONTRACT_ADDRESS || "";
 const SOL_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const RAIDS_ENABLED = (process.env.RAIDS_ENABLED || "").toLowerCase() === "true";
+const TWEET_RE = /https?:\/\/(x|twitter)\.com\/\w+\/status\/(\d+)/i;
+const RAID_COOLDOWN_MS = 10 * 60 * 1000; // 10 min per-user raid scoring cooldown
+const raidCooldowns = new Map();
 
 if (!TOKEN || !SUPABASE_URL || !SUPABASE_KEY) {
   console.error("Missing env vars. Copy .env.example to .env and fill it in.");
@@ -543,10 +548,149 @@ bot.onText(/\/myyo/, async (msg) => {
   }
 });
 
+// ============ RAID TRACKER ============
+
+// detect tweet links in chat — log as raid drops
+bot.on("message", async (msg) => {
+  if (!msg.text) return;
+  const match = msg.text.match(TWEET_RE);
+  if (!match) return;
+
+  if (!RAIDS_ENABLED) return; // silently ignore when off
+
+  const userId = msg.from.id;
+  const username = msg.from.username || null;
+  const tweetUrl = match[0].replace(/^https?:\/\/twitter\.com/, "https://x.com"); // normalize
+
+  // 10-min per-user cooldown for scoring
+  const now = Date.now();
+  const lastRaid = raidCooldowns.get(userId) || 0;
+  if (now - lastRaid < RAID_COOLDOWN_MS) return;
+
+  try {
+    // insert with unique tweet_url — duplicates silently ignored
+    const { error } = await supabase
+      .from("raid_drops")
+      .insert({ user_id: userId, username, tweet_url: tweetUrl });
+
+    if (error) {
+      // unique violation = dupe link, just ignore
+      if (error.code === "23505") return;
+      console.error("raid insert error:", error.message);
+      return;
+    }
+
+    raidCooldowns.set(userId, now);
+    const who = username ? `@${username}` : msg.from.first_name || "anon";
+    bot.sendMessage(msg.chat.id, `\u{1F534} raid drop logged \u2014 ${who} is saying it back on X.`, {
+      reply_to_message_id: msg.message_id,
+    });
+  } catch (err) {
+    console.error("raid error:", err.message);
+  }
+});
+
+// /raids — top 10 raiders last 3 days
+bot.onText(/\/raids$/, async (msg) => {
+  if (!RAIDS_ENABLED) {
+    bot.sendMessage(msg.chat.id, "\u{1F534} raids not live yet.");
+    return;
+  }
+
+  try {
+    const since = daysAgo(3);
+    const { data, error } = await supabase
+      .from("raid_drops")
+      .select("user_id, username")
+      .gte("created_at", since);
+
+    if (error || !data?.length) {
+      bot.sendMessage(msg.chat.id, "\u{1F534} no raids in the last 3 days. drop a tweet link to start.");
+      return;
+    }
+
+    // count distinct links per user
+    const counts = {};
+    for (const r of data) {
+      const key = r.user_id;
+      if (!counts[key]) counts[key] = { username: r.username, n: 0 };
+      if (r.username) counts[key].username = r.username;
+      counts[key].n++;
+    }
+
+    const ranked = Object.values(counts)
+      .sort((a, b) => b.n - a.n)
+      .slice(0, 10);
+
+    const medals = ["\u{1F947}", "\u{1F948}", "\u{1F949}"];
+    const lines = ranked.map((r, i) => {
+      const rank = medals[i] || `${i + 1}.`;
+      const name = r.username ? `@${r.username}` : "anon";
+      return `${rank} ${name} \u2014 ${r.n} raid${r.n === 1 ? "" : "s"}`;
+    });
+
+    bot.sendMessage(msg.chat.id, "\u{1F534} RAID LEADERBOARD (last 3 days)\n\n" + lines.join("\n"));
+  } catch (err) {
+    console.error("raids error:", err.message);
+  }
+});
+
+// /raidshout — admin-only, shout out top 3 raiders
+bot.onText(/\/raidshout/, async (msg) => {
+  if (!RAIDS_ENABLED) {
+    bot.sendMessage(msg.chat.id, "\u{1F534} raids not live yet.");
+    return;
+  }
+
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  if (!(await isAdmin(chatId, userId))) {
+    bot.sendMessage(chatId, "\u{1F534} admins only.");
+    return;
+  }
+
+  try {
+    const since = daysAgo(3);
+    const { data, error } = await supabase
+      .from("raid_drops")
+      .select("user_id, username")
+      .gte("created_at", since);
+
+    if (error || !data?.length) {
+      bot.sendMessage(chatId, "\u{1F534} no raids to shout out.");
+      return;
+    }
+
+    const counts = {};
+    for (const r of data) {
+      const key = r.user_id;
+      if (!counts[key]) counts[key] = { username: r.username, n: 0 };
+      if (r.username) counts[key].username = r.username;
+      counts[key].n++;
+    }
+
+    const top3 = Object.values(counts)
+      .sort((a, b) => b.n - a.n)
+      .slice(0, 3);
+
+    const hype = ["\u{1F525}\u{1F525}\u{1F525}", "\u{1F525}\u{1F525}", "\u{1F525}"];
+    const lines = top3.map((r, i) => {
+      const name = r.username ? `@${r.username}` : "anon";
+      return `${hype[i]} ${name} \u2014 ${r.n} raid${r.n === 1 ? "" : "s"}`;
+    });
+
+    bot.sendMessage(chatId, "\u{1F534} RAID SHOUTOUT\n\nthese ones said it back the hardest:\n\n" + lines.join("\n") + "\n\nyo. \u{1F534}");
+  } catch (err) {
+    console.error("raidshout error:", err.message);
+  }
+});
+
 // /start and /help
 const HELP_TEXT = `\u{1F534} welcome to YO. say it back.
 
 every yo counts \u2014 here + on the site, same number.
+${SITE_URL}
 
 what you can do:
 /yos \u2014 the live count
@@ -557,6 +701,8 @@ what you can do:
 /raiders \u2014 the real ones (loyalty, not spam)
 /milestones \u2014 how close to the next goal
 /ca \u2014 official contract (verify before you ape)
+/raids \u2014 top raiders (last 3 days)
+/raidshout \u2014 shout out top raiders (admin)
 
 say yo. that's the whole religion. \u{1F534}`;
 
