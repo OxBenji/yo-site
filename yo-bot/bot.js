@@ -5,6 +5,7 @@ const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const LEADERBOARD_URL = process.env.LEADERBOARD_URL || "";
+const CA = process.env.CONTRACT_ADDRESS || "";
 
 if (!TOKEN || !SUPABASE_URL || !SUPABASE_KEY) {
   console.error("Missing env vars. Copy .env.example to .env and fill it in.");
@@ -22,123 +23,25 @@ const cooldowns = new Map();
 const COOLDOWN_MS = 60_000;
 
 // first yo of the day tracking (resets at UTC midnight)
-let firstYoToday = null; // { date: 'YYYY-MM-DD', userId, name, announced: bool }
+let firstYoToday = null;
 
 function utcDateStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
-bot.on("message", async (msg) => {
-  if (!msg.text || !YO_RE.test(msg.text)) return;
+function fmt(n) { return (n || 0).toLocaleString(); }
 
-  const userId = msg.from.id;
-  const now = Date.now();
-  const lastYo = cooldowns.get(userId) || 0;
-  if (now - lastYo < COOLDOWN_MS) return; // silently skip
-  cooldowns.set(userId, now);
+function todayUTC() {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString();
+}
 
-  const username = msg.from.username || null;
-  const displayName =
-    [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ") ||
-    null;
-  const handle = username || displayName || null;
+function daysAgo(n) {
+  return new Date(Date.now() - n * 86400000).toISOString();
+}
 
-  try {
-    // Shared count: call the SAME say_yo RPC the website uses
-    // Also log to tg_yo_log for /stats time windows + tg_yos for /leaderboard
-    const [{ data: globalCount, error }, _log, _tg] = await Promise.all([
-      supabase.rpc("say_yo", { p_handle: handle }),
-      supabase.from("tg_yo_log").insert({ user_id: userId, username }),
-      supabase.rpc("say_tg_yo", {
-        p_user_id: userId,
-        p_username: username,
-        p_display_name: displayName,
-      }),
-    ]);
-
-    if (error) {
-      console.error("say_yo rpc error:", error.message);
-      return;
-    }
-
-    const count = typeof globalCount === "number" ? globalCount : null;
-
-    // first yo of the day crown
-    const today = utcDateStr();
-    if (!firstYoToday || firstYoToday.date !== today) {
-      const who = username ? `@${username}` : displayName || "someone";
-      firstYoToday = { date: today, userId, name: who, announced: true };
-      bot.sendMessage(msg.chat.id, `👑 first yo of the day — ${who}. say it back.`);
-    }
-
-    // milestone shoutouts
-    if (count && count % 100 === 0) {
-      bot.sendMessage(
-        msg.chat.id,
-        `🔴 ${count.toLocaleString()} yo's. say it back.`,
-        { reply_to_message_id: msg.message_id }
-      );
-    }
-  } catch (err) {
-    console.error("bot error:", err.message);
-  }
-});
-
-// /leaderboard — top 10 (still uses tg_yos for per-user ranking)
-bot.onText(/\/leaderboard/, async (msg) => {
-  try {
-    const { data, error } = await supabase
-      .from("tg_yos")
-      .select("username, display_name, yo_count")
-      .order("yo_count", { ascending: false })
-      .limit(10);
-
-    if (error || !data?.length) {
-      bot.sendMessage(msg.chat.id, "no yo's yet. say yo.");
-      return;
-    }
-
-    const medals = ["1.", "2.", "3."];
-    const lines = data.map((r, i) => {
-      const rank = medals[i] || `${i + 1}.`;
-      const name = r.username ? `@${r.username}` : r.display_name || "anon";
-      return `${rank} ${name} — ${r.yo_count} yo's`;
-    });
-
-    let text = "YO LEADERBOARD\n\n" + lines.join("\n");
-    if (LEADERBOARD_URL) {
-      text += `\n\n${LEADERBOARD_URL}`;
-    }
-
-    bot.sendMessage(msg.chat.id, text);
-  } catch (err) {
-    console.error("leaderboard error:", err.message);
-  }
-});
-
-// /myyo — personal count (from tg_yos)
-bot.onText(/\/myyo/, async (msg) => {
-  try {
-    const { data } = await supabase
-      .from("tg_yos")
-      .select("yo_count")
-      .eq("user_id", msg.from.id)
-      .single();
-
-    const count = data?.yo_count || 0;
-    bot.sendMessage(
-      msg.chat.id,
-      count > 0
-        ? `you've said yo ${count} time${count === 1 ? "" : "s"}.`
-        : "you haven't said yo yet. say it.",
-      { reply_to_message_id: msg.message_id }
-    );
-  } catch (err) {
-    console.error("myyo error:", err.message);
-  }
-});
-
-// --- time-based stats helpers ---
+// --- helpers ---
 
 async function countSince(since) {
   const { count, error } = await supabase
@@ -150,7 +53,6 @@ async function countSince(since) {
 }
 
 async function allTimeCount() {
-  // Read from the shared global counter (same as website)
   const { data, error } = await supabase
     .from("counters")
     .select("value")
@@ -176,45 +78,155 @@ async function loudestSince(since) {
   return { username: top[0], count: top[1] };
 }
 
-function fmt(n) { return n.toLocaleString(); }
-
-function todayUTC() {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  return d.toISOString();
+async function getUserRank(userId) {
+  const { data, error } = await supabase
+    .from("tg_yos")
+    .select("user_id, yo_count")
+    .order("yo_count", { ascending: false });
+  if (error || !data?.length) return { rank: 0, total: 0, count: 0 };
+  const idx = data.findIndex((r) => String(r.user_id) === String(userId));
+  const count = idx >= 0 ? data[idx].yo_count : 0;
+  return { rank: idx >= 0 ? idx + 1 : data.length + 1, total: data.length, count };
 }
 
-function daysAgo(n) {
-  return new Date(Date.now() - n * 86400000).toISOString();
+function getLevel(count) {
+  // levels: 1-9 yo = level 1, 10-24 = level 2, 25-49 = 3, 50-99 = 4, 100-249 = 5,
+  // 250-499 = 6, 500-999 = 7, 1000-2499 = 8, 2500-4999 = 9, 5000+ = 10
+  const thresholds = [0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
+  let lvl = 1;
+  for (let i = thresholds.length - 1; i >= 0; i--) {
+    if (count >= thresholds[i]) { lvl = i + 1; break; }
+  }
+  const next = lvl < thresholds.length ? thresholds[lvl] : null;
+  return { lvl, next };
 }
 
-// /today
-bot.onText(/\/today/, async (msg) => {
+function getBadges(count, streak, daysActive) {
+  const badges = [];
+  if (count >= 1) badges.push("said it back");
+  if (count >= 50) badges.push("yoer");
+  if (count >= 100) badges.push("centurion");
+  if (count >= 500) badges.push("yo lord");
+  if (count >= 1000) badges.push("yo god");
+  if (streak >= 3) badges.push("on fire");
+  if (streak >= 7) badges.push("unstoppable");
+  if (streak >= 30) badges.push("legendary");
+  if (daysActive >= 7) badges.push("raider");
+  if (daysActive >= 30) badges.push("OG");
+  return badges;
+}
+
+async function getUserStreak(userId) {
+  // get distinct days the user yo'd, ordered desc
+  const { data, error } = await supabase
+    .from("tg_yo_log")
+    .select("created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (error || !data?.length) return { streak: 0, daysActive: 0 };
+
+  const days = [...new Set(data.map((r) => r.created_at.slice(0, 10)))].sort().reverse();
+  const daysActive = days.length;
+
+  // count streak from today/yesterday backwards
+  let streak = 0;
+  const today = utcDateStr();
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+  // start counting if they yo'd today or yesterday
+  let checkDate = days[0] === today ? today : days[0] === yesterday ? yesterday : null;
+  if (!checkDate) return { streak: 0, daysActive };
+
+  for (const day of days) {
+    if (day === checkDate) {
+      streak++;
+      // move checkDate back one day
+      const d = new Date(checkDate + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() - 1);
+      checkDate = d.toISOString().slice(0, 10);
+    } else if (day < checkDate) {
+      break;
+    }
+  }
+  return { streak, daysActive };
+}
+
+function getMilestoneStep(n) {
+  if (n < 1000) return 100;
+  if (n < 10000) return 1000;
+  return 10000;
+}
+
+function nextMilestone(n) {
+  const step = getMilestoneStep(n + 1);
+  return Math.ceil((n + 1) / step) * step;
+}
+
+// ============ YO MESSAGE HANDLER ============
+
+bot.on("message", async (msg) => {
+  if (!msg.text || !YO_RE.test(msg.text)) return;
+
+  const userId = msg.from.id;
+  const now = Date.now();
+  const lastYo = cooldowns.get(userId) || 0;
+  if (now - lastYo < COOLDOWN_MS) return;
+  cooldowns.set(userId, now);
+
+  const username = msg.from.username || null;
+  const displayName =
+    [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ") || null;
+  const handle = username || displayName || null;
+
   try {
-    const n = await countSince(todayUTC());
-    bot.sendMessage(msg.chat.id, `🔴 today: ${fmt(n)} yo's`);
+    const [{ data: globalCount, error }, _log, _tg] = await Promise.all([
+      supabase.rpc("say_yo", { p_handle: handle }),
+      supabase.from("tg_yo_log").insert({ user_id: userId, username }),
+      supabase.rpc("say_tg_yo", {
+        p_user_id: userId,
+        p_username: username,
+        p_display_name: displayName,
+      }),
+    ]);
+
+    if (error) {
+      console.error("say_yo rpc error:", error.message);
+      return;
+    }
+
+    const count = typeof globalCount === "number" ? globalCount : null;
+
+    // first yo of the day crown
+    const today = utcDateStr();
+    if (!firstYoToday || firstYoToday.date !== today) {
+      const who = username ? `@${username}` : displayName || "someone";
+      firstYoToday = { date: today, userId, name: who };
+      bot.sendMessage(msg.chat.id, `\u{1F451} first yo of the day \u2014 ${who}. say it back.`);
+    }
+
+    // milestone shoutouts
+    if (count && count % getMilestoneStep(count) === 0) {
+      bot.sendMessage(
+        msg.chat.id,
+        `\u{1F534} ${count.toLocaleString()} yo's. say it back.`,
+        { reply_to_message_id: msg.message_id }
+      );
+    }
   } catch (err) {
-    console.error("today error:", err.message);
+    console.error("bot error:", err.message);
   }
 });
 
-// /week
-bot.onText(/\/week/, async (msg) => {
-  try {
-    const n = await countSince(daysAgo(7));
-    bot.sendMessage(msg.chat.id, `🔴 this week: ${fmt(n)} yo's`);
-  } catch (err) {
-    console.error("week error:", err.message);
-  }
-});
+// ============ COMMANDS ============
 
-// /month
-bot.onText(/\/month/, async (msg) => {
+// /yos — live global count
+bot.onText(/\/yos/, async (msg) => {
   try {
-    const n = await countSince(daysAgo(30));
-    bot.sendMessage(msg.chat.id, `🔴 this month: ${fmt(n)} yo's`);
+    const n = await allTimeCount();
+    bot.sendMessage(msg.chat.id, `\u{1F534} ${fmt(n)} yo's. say it back.`);
   } catch (err) {
-    console.error("month error:", err.message);
+    console.error("yos error:", err.message);
   }
 });
 
@@ -230,30 +242,237 @@ bot.onText(/\/stats/, async (msg) => {
       loudestSince(todaySince),
     ]);
 
-    let text = `🔴 YO stats\n\ntoday: ${fmt(today)}\nthis week: ${fmt(week)}\nthis month: ${fmt(month)}\nall-time: ${fmt(allTime)}`;
-    if (loud) {
-      text += `\n\nloudest today: @${loud.username} (${loud.count})`;
-    }
+    let text = `\u{1F534} YO stats\n\ntoday: ${fmt(today)}\nthis week: ${fmt(week)}\nthis month: ${fmt(month)}\nall-time: ${fmt(allTime)}`;
+    if (loud) text += `\n\nloudest today: @${loud.username} (${loud.count})`;
     bot.sendMessage(msg.chat.id, text);
   } catch (err) {
     console.error("stats error:", err.message);
   }
 });
 
+// /today
+bot.onText(/\/today/, async (msg) => {
+  try {
+    const n = await countSince(todayUTC());
+    bot.sendMessage(msg.chat.id, `\u{1F534} today: ${fmt(n)} yo's`);
+  } catch (err) {
+    console.error("today error:", err.message);
+  }
+});
+
+// /week
+bot.onText(/\/week/, async (msg) => {
+  try {
+    const n = await countSince(daysAgo(7));
+    bot.sendMessage(msg.chat.id, `\u{1F534} this week: ${fmt(n)} yo's`);
+  } catch (err) {
+    console.error("week error:", err.message);
+  }
+});
+
+// /month
+bot.onText(/\/month/, async (msg) => {
+  try {
+    const n = await countSince(daysAgo(30));
+    bot.sendMessage(msg.chat.id, `\u{1F534} this month: ${fmt(n)} yo's`);
+  } catch (err) {
+    console.error("month error:", err.message);
+  }
+});
+
+// /streak — personal daily streak
+bot.onText(/\/streak/, async (msg) => {
+  try {
+    const { streak, daysActive } = await getUserStreak(msg.from.id);
+    const name = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || "anon";
+    if (streak === 0) {
+      bot.sendMessage(msg.chat.id, `${name} — no streak yet. say yo today to start one.`, { reply_to_message_id: msg.message_id });
+    } else {
+      let text = `${name}\n\n\u{1F525} ${streak} day streak\n${daysActive} total days active`;
+      if (streak >= 7) text += "\n\nyou're unstoppable.";
+      else if (streak >= 3) text += "\n\non fire. don't break it.";
+      bot.sendMessage(msg.chat.id, text, { reply_to_message_id: msg.message_id });
+    }
+  } catch (err) {
+    console.error("streak error:", err.message);
+  }
+});
+
+// /yome — personal rank, level, badges
+bot.onText(/\/yome/, async (msg) => {
+  try {
+    const userId = msg.from.id;
+    const name = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || "anon";
+    const [rankData, streakData] = await Promise.all([
+      getUserRank(userId),
+      getUserStreak(userId),
+    ]);
+
+    if (rankData.count === 0) {
+      bot.sendMessage(msg.chat.id, `${name} — you haven't said yo yet. say it.`, { reply_to_message_id: msg.message_id });
+      return;
+    }
+
+    const { lvl, next } = getLevel(rankData.count);
+    const badges = getBadges(rankData.count, streakData.streak, streakData.daysActive);
+
+    let text = `\u{1F534} ${name}\n\n`;
+    text += `rank: #${rankData.rank} of ${rankData.total}\n`;
+    text += `level: ${lvl}${next ? ` (${rankData.count}/${next} to next)` : " (max)"}\n`;
+    text += `yo's: ${fmt(rankData.count)}\n`;
+    text += `streak: ${streakData.streak} day${streakData.streak === 1 ? "" : "s"}\n`;
+    text += `days active: ${streakData.daysActive}`;
+    if (badges.length) text += `\n\nbadges: ${badges.join(" \u00b7 ")}`;
+    bot.sendMessage(msg.chat.id, text, { reply_to_message_id: msg.message_id });
+  } catch (err) {
+    console.error("yome error:", err.message);
+  }
+});
+
+// /leaderboard — top 10 + caller's rank
+bot.onText(/\/leaderboard/, async (msg) => {
+  try {
+    const { data, error } = await supabase
+      .from("tg_yos")
+      .select("user_id, username, display_name, yo_count")
+      .order("yo_count", { ascending: false })
+      .limit(10);
+
+    if (error || !data?.length) {
+      bot.sendMessage(msg.chat.id, "no yo's yet. say yo.");
+      return;
+    }
+
+    const medals = ["\u{1F947}", "\u{1F948}", "\u{1F949}"];
+    const lines = data.map((r, i) => {
+      const rank = medals[i] || `${i + 1}.`;
+      const name = r.username ? `@${r.username}` : r.display_name || "anon";
+      return `${rank} ${name} \u2014 ${r.yo_count} yo's`;
+    });
+
+    let text = "\u{1F534} YO LEADERBOARD\n\n" + lines.join("\n");
+
+    // add caller's rank if not in top 10
+    const callerId = msg.from.id;
+    const inTop = data.some((r) => String(r.user_id) === String(callerId));
+    if (!inTop) {
+      const { rank, count } = await getUserRank(callerId);
+      if (count > 0) {
+        const callerName = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || "you";
+        text += `\n\n${callerName}: #${rank} \u2014 ${count} yo's`;
+      }
+    }
+
+    if (LEADERBOARD_URL) text += `\n\n${LEADERBOARD_URL}`;
+    bot.sendMessage(msg.chat.id, text);
+  } catch (err) {
+    console.error("leaderboard error:", err.message);
+  }
+});
+
+// /raiders — most consistent (loyalty = days active, not just volume)
+bot.onText(/\/raiders/, async (msg) => {
+  try {
+    const { data, error } = await supabase
+      .from("tg_yo_log")
+      .select("user_id, username, created_at");
+    if (error || !data?.length) {
+      bot.sendMessage(msg.chat.id, "no raiders yet. say yo every day.");
+      return;
+    }
+
+    // count distinct active days per user
+    const users = {};
+    for (const r of data) {
+      const key = r.user_id;
+      if (!users[key]) users[key] = { username: r.username, days: new Set() };
+      if (r.username) users[key].username = r.username;
+      users[key].days.add(r.created_at.slice(0, 10));
+    }
+
+    const ranked = Object.entries(users)
+      .map(([uid, u]) => ({ uid, username: u.username, daysActive: u.days.size }))
+      .sort((a, b) => b.daysActive - a.daysActive)
+      .slice(0, 10);
+
+    const lines = ranked.map((r, i) => {
+      const name = r.username ? `@${r.username}` : "anon";
+      return `${i + 1}. ${name} \u2014 ${r.daysActive} day${r.daysActive === 1 ? "" : "s"}`;
+    });
+
+    bot.sendMessage(msg.chat.id, "\u{1F534} RAIDERS (loyalty, not spam)\n\n" + lines.join("\n"));
+  } catch (err) {
+    console.error("raiders error:", err.message);
+  }
+});
+
+// /milestones — progress toward next milestone
+bot.onText(/\/milestones/, async (msg) => {
+  try {
+    const count = await allTimeCount();
+    const next = nextMilestone(count);
+    const remaining = next - count;
+    const pct = Math.floor((count / next) * 100);
+    const bar = "\u2588".repeat(Math.floor(pct / 10)) + "\u2591".repeat(10 - Math.floor(pct / 10));
+
+    let text = `\u{1F534} milestone tracker\n\n`;
+    text += `current: ${fmt(count)} yo's\n`;
+    text += `next: ${fmt(next)}\n`;
+    text += `remaining: ${fmt(remaining)}\n\n`;
+    text += `[${bar}] ${pct}%`;
+    bot.sendMessage(msg.chat.id, text);
+  } catch (err) {
+    console.error("milestones error:", err.message);
+  }
+});
+
+// /ca — contract address
+bot.onText(/\/ca/, (msg) => {
+  if (CA) {
+    bot.sendMessage(msg.chat.id, `\u{1F534} CA: ${CA}\n\nalways verify before you ape.`);
+  } else {
+    bot.sendMessage(msg.chat.id, "\u{1F534} CA: dropping soon. verify before you ape.");
+  }
+});
+
+// /myyo — personal count
+bot.onText(/\/myyo/, async (msg) => {
+  try {
+    const { data } = await supabase
+      .from("tg_yos")
+      .select("yo_count")
+      .eq("user_id", msg.from.id)
+      .single();
+
+    const count = data?.yo_count || 0;
+    bot.sendMessage(
+      msg.chat.id,
+      count > 0
+        ? `you've said yo ${count} time${count === 1 ? "" : "s"}.`
+        : "you haven't said yo yet. say it.",
+      { reply_to_message_id: msg.message_id }
+    );
+  } catch (err) {
+    console.error("myyo error:", err.message);
+  }
+});
+
 // /start and /help
-const HELP_TEXT = `🔴 yo.
+const HELP_TEXT = `\u{1F534} welcome to YO. say it back.
 
-say yo in the chat. that's it. every yo counts globally — same number on the site and here.
+every yo counts \u2014 here + on the site, same number.
 
-commands:
-/stats — full yo summary
-/today — yo's said today
-/week — this week
-/month — this month
-/leaderboard — top 10 yo'ers
-/myyo — your personal count
+what you can do:
+/yos \u2014 the live count
+/stats \u2014 today / week / month / all-time
+/streak \u2014 your daily streak (don't break it)
+/yome \u2014 your rank, level + badges
+/leaderboard \u2014 top yo'ers + your spot
+/raiders \u2014 the real ones (loyalty, not spam)
+/milestones \u2014 how close to the next goal
+/ca \u2014 official contract (verify before you ape)
 
-one word. infinite meanings. say it back.`;
+say yo. that's the whole religion. \u{1F534}`;
 
 bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, HELP_TEXT));
 bot.onText(/\/help/, (msg) => bot.sendMessage(msg.chat.id, HELP_TEXT));
@@ -265,7 +484,7 @@ bot.on("new_chat_members", (msg) => {
     const name = member.username
       ? `@${member.username}`
       : member.first_name || "anon";
-    bot.sendMessage(msg.chat.id, `yo ${name}. you said it back. you're in. 🔴`);
+    bot.sendMessage(msg.chat.id, `yo ${name}. you said it back. you're in. \u{1F534}`);
   }
 });
 
