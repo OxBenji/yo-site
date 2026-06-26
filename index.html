@@ -413,7 +413,7 @@ function buildFallbackCard(cv,x,S){
   x.textAlign='left';
   return cv;}
 function downloadCard(){const cv=buildCard();const a=document.createElement('a');a.download='yo-said-it-back.png';a.href=cv.toDataURL('image/png');a.click();}
-function postX(){const h=handle();const t='yo. say it back.'+(h?' — @'+h:'')+'\n\n#'+yoCount.toLocaleString()+' and counting. the meta is hello.';window.open('https://twitter.com/intent/tweet?text='+encodeURIComponent(t),'_blank');}
+function postX(){const h=handle();const t='yo. say it back.'+(h?' — @'+h:'')+'\n\nyou\'re no. '+yoCount.toLocaleString()+' to say it back. the meta is hello.';window.open('https://twitter.com/intent/tweet?text='+encodeURIComponent(t),'_blank');}
 function copyLink(btn){navigator.clipboard&&navigator.clipboard.writeText(window.location.href);const o=btn.textContent;btn.textContent='copied!';setTimeout(()=>btn.textContent=o,1200);}
 function boot(){loadCount();loadWall();setInterval(()=>{loadCount();loadWall();},10000);}
 async function loadCount(){
