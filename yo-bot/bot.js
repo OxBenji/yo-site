@@ -5,7 +5,8 @@ const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const LEADERBOARD_URL = process.env.LEADERBOARD_URL || "";
-const CA = process.env.CONTRACT_ADDRESS || "";
+let cachedCA = process.env.CONTRACT_ADDRESS || "";
+const SOL_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 if (!TOKEN || !SUPABASE_URL || !SUPABASE_KEY) {
   console.error("Missing env vars. Copy .env.example to .env and fill it in.");
@@ -162,6 +163,43 @@ function nextMilestone(n) {
   const step = getMilestoneStep(n + 1);
   return Math.ceil((n + 1) / step) * step;
 }
+
+// --- CA config helpers ---
+
+async function loadCA() {
+  try {
+    const { data } = await supabase
+      .from("app_config")
+      .select("value")
+      .eq("key", "yo_ca")
+      .single();
+    if (data?.value) cachedCA = data.value;
+  } catch (e) {
+    // table may not exist yet, fall back to env
+  }
+}
+
+async function saveCA(address) {
+  cachedCA = address;
+  await supabase.from("app_config").upsert({ key: "yo_ca", value: address });
+}
+
+async function clearCA() {
+  cachedCA = "";
+  await supabase.from("app_config").upsert({ key: "yo_ca", value: "" });
+}
+
+async function isAdmin(chatId, userId) {
+  try {
+    const member = await bot.getChatMember(chatId, userId);
+    return member.status === "administrator" || member.status === "creator";
+  } catch (e) {
+    return false;
+  }
+}
+
+// load CA from DB on startup
+loadCA();
 
 // ============ YO MESSAGE HANDLER ============
 
@@ -426,12 +464,60 @@ bot.onText(/\/milestones/, async (msg) => {
   }
 });
 
-// /ca — contract address
-bot.onText(/\/ca/, (msg) => {
-  if (CA) {
-    bot.sendMessage(msg.chat.id, `\u{1F534} CA: ${CA}\n\nalways verify before you ape.`);
+// /ca — contract address (read from config)
+bot.onText(/\/ca$/, (msg) => {
+  if (cachedCA) {
+    bot.sendMessage(msg.chat.id, `\u{1F534} official $YO CA:\n\`${cachedCA}\`\n\nonly this one. verify before you ape.`, { parse_mode: "Markdown" });
   } else {
-    bot.sendMessage(msg.chat.id, "\u{1F534} CA: dropping soon. verify before you ape.");
+    bot.sendMessage(msg.chat.id, "\u{1F534} not live yet. CA drops at launch \u2014 only trust what's posted here.");
+  }
+});
+
+// /setca <address> — admins only, saves to Supabase
+bot.onText(/\/setca(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  if (!(await isAdmin(chatId, userId))) {
+    bot.sendMessage(chatId, "\u{1F534} admins only.");
+    return;
+  }
+
+  const address = (match[1] || "").trim();
+  if (!address) {
+    bot.sendMessage(chatId, "\u{1F534} usage: /setca <solana address>");
+    return;
+  }
+
+  if (!SOL_ADDR_RE.test(address)) {
+    bot.sendMessage(chatId, "\u{1F534} that doesn't look like a valid solana address. check and try again.");
+    return;
+  }
+
+  try {
+    await saveCA(address);
+    bot.sendMessage(chatId, `\u{1F534} CA set \u2705\n\`${address}\`\n\nthis is now the official /ca. verify before you ape.`, { parse_mode: "Markdown" });
+  } catch (err) {
+    console.error("setca error:", err.message);
+    bot.sendMessage(chatId, "\u{1F534} error saving CA. try again.");
+  }
+});
+
+// /clearca — admins only, wipe CA
+bot.onText(/\/clearca/, async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  if (!(await isAdmin(chatId, userId))) {
+    bot.sendMessage(chatId, "\u{1F534} admins only.");
+    return;
+  }
+
+  try {
+    await clearCA();
+    bot.sendMessage(chatId, "\u{1F534} CA cleared.");
+  } catch (err) {
+    console.error("clearca error:", err.message);
   }
 });
 
