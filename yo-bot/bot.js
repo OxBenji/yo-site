@@ -9,6 +9,29 @@ const LEADERBOARD_URL = process.env.LEADERBOARD_URL || `${SITE_URL}/leaderboard.
 let cachedCA = process.env.CONTRACT_ADDRESS || "";
 const SOL_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const RAIDS_ENABLED = (process.env.RAIDS_ENABLED || "").toLowerCase() === "true";
+const YOIFY_API = process.env.YOIFY_API || "https://api.justsayyo.xyz/api/yoify-public";
+const YOIFY_COLORS = ["vermilion", "magenta", "emerald", "gold", "ice"];
+
+// save yo'd thumbnail to gallery for site background
+async function saveToGallery(dataUrl) {
+  try {
+    // resize to 128x128 thumbnail server-side (just crop center + compress the b64)
+    // for simplicity, store a smaller slice of the original
+    const thumb = dataUrl.length > 200000
+      ? dataUrl.slice(0, 200000) // cap at ~150KB base64
+      : dataUrl;
+    await fetch(SUPABASE_URL + '/rest/v1/yo_gallery', {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({ thumb }),
+    });
+  } catch (e) { /* silent */ }
+}
 const TWEET_RE = /https?:\/\/(x|twitter)\.com\/\w+\/status\/(\d+)/i;
 const RAID_COOLDOWN_MS = 10 * 60 * 1000; // 10 min per-user raid scoring cooldown
 const raidCooldowns = new Map();
@@ -19,7 +42,15 @@ if (!TOKEN || !SUPABASE_URL || !SUPABASE_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-const bot = new TelegramBot(TOKEN, { polling: true });
+const bot = new TelegramBot(TOKEN, {
+  polling: { interval: 1000, params: { timeout: 30 } },
+});
+
+// suppress polling errors (transient DNS/network) — bot auto-retries
+bot.on("polling_error", (err) => {
+  if (err.code === "EFATAL") return; // silent — auto-reconnects
+  console.error("[polling]", err.message);
+});
 
 // Match "yo" variants (yo, yooo, yyoo) as a standalone word
 const YO_RE = /\by+o+\b/i;
@@ -85,14 +116,19 @@ async function loudestSince(since) {
 }
 
 async function getUserRank(userId) {
-  const { data, error } = await supabase
+  const { data: user, error: userErr } = await supabase
     .from("tg_yos")
-    .select("user_id, yo_count")
-    .order("yo_count", { ascending: false });
-  if (error || !data?.length) return { rank: 0, total: 0, count: 0 };
-  const idx = data.findIndex((r) => String(r.user_id) === String(userId));
-  const count = idx >= 0 ? data[idx].yo_count : 0;
-  return { rank: idx >= 0 ? idx + 1 : data.length + 1, total: data.length, count };
+    .select("yo_count")
+    .eq("user_id", userId)
+    .single();
+  if (userErr || !user) return { rank: 0, total: 0, count: 0 };
+
+  const [{ count: above }, { count: total }] = await Promise.all([
+    supabase.from("tg_yos").select("*", { count: "exact", head: true }).gt("yo_count", user.yo_count),
+    supabase.from("tg_yos").select("*", { count: "exact", head: true }),
+  ]);
+
+  return { rank: (above || 0) + 1, total: total || 0, count: user.yo_count };
 }
 
 function getLevel(count) {
@@ -416,31 +452,21 @@ bot.onText(/\/leaderboard/, async (msg) => {
 // /raiders — most consistent (loyalty = days active, not just volume)
 bot.onText(/\/raiders/, async (msg) => {
   try {
-    const { data, error } = await supabase
-      .from("tg_yo_log")
-      .select("user_id, username, created_at");
-    if (error || !data?.length) {
+    const { data, error } = await supabase.rpc("top_raiders", { lim: 10 });
+    if (error) {
+      // fallback: limited fetch if RPC not yet deployed
+      console.error("top_raiders rpc error (run missing-tables.sql?):", error.message);
+      bot.sendMessage(msg.chat.id, "no raiders yet. say yo every day.");
+      return;
+    }
+    if (!data?.length) {
       bot.sendMessage(msg.chat.id, "no raiders yet. say yo every day.");
       return;
     }
 
-    // count distinct active days per user
-    const users = {};
-    for (const r of data) {
-      const key = r.user_id;
-      if (!users[key]) users[key] = { username: r.username, days: new Set() };
-      if (r.username) users[key].username = r.username;
-      users[key].days.add(r.created_at.slice(0, 10));
-    }
-
-    const ranked = Object.entries(users)
-      .map(([uid, u]) => ({ uid, username: u.username, daysActive: u.days.size }))
-      .sort((a, b) => b.daysActive - a.daysActive)
-      .slice(0, 10);
-
-    const lines = ranked.map((r, i) => {
+    const lines = data.map((r, i) => {
       const name = r.username ? `@${r.username}` : "anon";
-      return `${i + 1}. ${name} \u2014 ${r.daysActive} day${r.daysActive === 1 ? "" : "s"}`;
+      return `${i + 1}. ${name} \u2014 ${r.days_active} day${r.days_active === 1 ? "" : "s"}`;
     });
 
     bot.sendMessage(msg.chat.id, "\u{1F534} RAIDERS (loyalty, not spam)\n\n" + lines.join("\n"));
@@ -524,6 +550,39 @@ bot.onText(/\/clearca/, async (msg) => {
   } catch (err) {
     console.error("clearca error:", err.message);
   }
+});
+
+// /price — live token price from DexScreener
+bot.onText(/\/price/, async (msg) => {
+  try {
+    const res = await fetch("https://api.dexscreener.com/latest/dex/tokens/ornwNKzfS4FFQ81ibSfZLvTwUXgETnsG3YpUxyoPumP");
+    const data = await res.json();
+    if (!data.pairs?.length) {
+      bot.sendMessage(msg.chat.id, "\u{1F534} no trading data yet.");
+      return;
+    }
+    const p = data.pairs[0];
+    const price = parseFloat(p.priceUsd);
+    const mc = p.fdv ? `$${Math.floor(p.fdv).toLocaleString()}` : "n/a";
+    const vol = p.volume?.h24 ? `$${Math.floor(p.volume.h24).toLocaleString()}` : "n/a";
+    const chg = p.priceChange?.h24 != null ? `${p.priceChange.h24 > 0 ? "+" : ""}${p.priceChange.h24}%` : "n/a";
+
+    let text = `\u{1F534} $YO price\n\n`;
+    text += `price: $${price < 0.01 ? price.toExponential(2) : price.toFixed(4)}\n`;
+    text += `mcap: ${mc}\n`;
+    text += `24h vol: ${vol}\n`;
+    text += `24h: ${chg}\n\n`;
+    text += `https://dexscreener.com/solana/ornwNKzfS4FFQ81ibSfZLvTwUXgETnsG3YpUxyoPumP`;
+    bot.sendMessage(msg.chat.id, text);
+  } catch (err) {
+    console.error("price error:", err.message);
+    bot.sendMessage(msg.chat.id, "\u{1F534} couldn't fetch price. try again.");
+  }
+});
+
+// /website — link to the site
+bot.onText(/\/website/, (msg) => {
+  bot.sendMessage(msg.chat.id, `\u{1F534} ${SITE_URL}\n\nsay it back.`);
 });
 
 // /myyo — personal count
@@ -687,7 +746,9 @@ bot.onText(/\/raidshout/, async (msg) => {
 });
 
 // /start and /help
-const HELP_TEXT = `\u{1F534} welcome to YO. say it back.
+const HELP_TEXT = `\u{1F534} YO
+
+The most versatile word on the internet. A greeting, a question, a celebration, a warning, a joke. Everybody knows it. Everybody uses it. Just Say Yo.
 
 every yo counts \u2014 here + on the site, same number.
 ${SITE_URL}
@@ -701,6 +762,9 @@ what you can do:
 /raiders \u2014 the real ones (loyalty, not spam)
 /milestones \u2014 how close to the next goal
 /ca \u2014 official contract (verify before you ape)
+/price \u2014 live $YO price + chart
+/website \u2014 justsayyo.xyz
+/yoify \u2014 send a photo, get yo'd (add color: vermilion, magenta, emerald, gold, ice)
 /raids \u2014 top raiders (last 3 days)
 /raidshout \u2014 shout out top raiders (admin)
 
@@ -708,6 +772,158 @@ say yo. that's the whole religion. \u{1F534}`;
 
 bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, HELP_TEXT));
 bot.onText(/\/help/, (msg) => bot.sendMessage(msg.chat.id, HELP_TEXT));
+
+// ============ GET YO'D (photo handler) ============
+
+const yoifyQueue = new Map(); // userId -> true (prevent double-tap)
+
+bot.onText(/\/yoify(?:\s+(\w+))?/, (msg, match) => {
+  const color = match[1] && YOIFY_COLORS.includes(match[1].toLowerCase()) ? match[1].toLowerCase() : null;
+  bot.sendMessage(msg.chat.id,
+    `send me a photo and I'll yo it.\n\ncolors: ${YOIFY_COLORS.join(", ")}${color ? `\n\nusing: ${color}` : ""}`,
+    { reply_to_message_id: msg.message_id }
+  );
+  // store color preference if provided
+  if (color) yoifyQueue.set(msg.from.id, color);
+});
+
+bot.on("photo", async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  // check caption for color
+  let color = yoifyQueue.get(userId) || null;
+  if (msg.caption) {
+    const lower = msg.caption.toLowerCase().trim();
+    const found = YOIFY_COLORS.find(c => lower.includes(c));
+    if (found) color = found;
+  }
+  yoifyQueue.delete(userId);
+
+  // if no color chosen, show inline buttons
+  if (!color) {
+    // store photo file_id for later
+    const photo = msg.photo[msg.photo.length - 1];
+    yoifyQueue.set(`photo:${userId}`, { fileId: photo.file_id, msgId: msg.message_id, chatId });
+    const buttons = YOIFY_COLORS.map(c => ({ text: c, callback_data: `yoify:${c}` }));
+    bot.sendMessage(chatId, "pick a color:", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: { inline_keyboard: [buttons] },
+    });
+    return;
+  }
+
+  // prevent spam
+  if (yoifyQueue.get(`lock:${userId}`)) {
+    bot.sendMessage(chatId, "hold up — still yo'ing your last one.", { reply_to_message_id: msg.message_id });
+    return;
+  }
+  yoifyQueue.set(`lock:${userId}`, true);
+
+  const status = await bot.sendMessage(chatId, "yo'ing... ~30-60s", { reply_to_message_id: msg.message_id });
+
+  try {
+    // get highest res photo
+    const photo = msg.photo[msg.photo.length - 1];
+    const file = await bot.getFile(photo.file_id);
+    const fileUrl = `https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`;
+
+    // download and convert to base64
+    const res = await fetch(fileUrl);
+    if (!res.ok) throw new Error("failed to download photo");
+    const buf = Buffer.from(await res.arrayBuffer());
+    const dataUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
+
+    // call yoify API
+    const apiRes = await fetch(YOIFY_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: dataUrl, color }),
+    });
+
+    const data = await apiRes.json();
+    if (!apiRes.ok) throw new Error(data.error || "generation failed");
+
+    // extract base64 and send as photo
+    const b64 = data.image.split(",")[1];
+    const imgBuf = Buffer.from(b64, "base64");
+
+    await bot.sendPhoto(chatId, imgBuf, {
+      caption: `yo'd. (${color})\n\nget yo'd: ${SITE_URL}`,
+      reply_to_message_id: msg.message_id,
+    }, { filename: "yod.png", contentType: "image/png" });
+
+    saveToGallery(data.image);
+    // delete the "yo'ing..." message
+    try { await bot.deleteMessage(chatId, status.message_id); } catch {}
+  } catch (err) {
+    console.error("[yoify-bot]", err.message);
+    try { await bot.deleteMessage(chatId, status.message_id); } catch {}
+    bot.sendMessage(chatId, `couldn't yo that: ${err.message}`, { reply_to_message_id: msg.message_id });
+  } finally {
+    yoifyQueue.delete(`lock:${userId}`);
+  }
+});
+
+// ============ INLINE COLOR CALLBACK ============
+bot.on("callback_query", async (query) => {
+  if (!query.data.startsWith("yoify:")) return;
+  const color = query.data.split(":")[1];
+  const userId = query.from.id;
+  const stored = yoifyQueue.get(`photo:${userId}`);
+
+  await bot.answerCallbackQuery(query.id, { text: color });
+  // remove the color picker message
+  try { await bot.deleteMessage(query.message.chat.id, query.message.message_id); } catch {}
+
+  if (!stored) {
+    bot.sendMessage(query.message.chat.id, "photo expired — send it again.");
+    return;
+  }
+  yoifyQueue.delete(`photo:${userId}`);
+
+  if (yoifyQueue.get(`lock:${userId}`)) {
+    bot.sendMessage(stored.chatId, "hold up — still yo'ing your last one.");
+    return;
+  }
+  yoifyQueue.set(`lock:${userId}`, true);
+
+  const status = await bot.sendMessage(stored.chatId, `yo'ing in ${color}... ~30-60s`);
+
+  try {
+    const file = await bot.getFile(stored.fileId);
+    const fileUrl = `https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`;
+    const res = await fetch(fileUrl);
+    if (!res.ok) throw new Error("failed to download photo");
+    const buf = Buffer.from(await res.arrayBuffer());
+    const dataUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
+
+    const apiRes = await fetch(YOIFY_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: dataUrl, color }),
+    });
+    const data = await apiRes.json();
+    if (!apiRes.ok) throw new Error(data.error || "generation failed");
+
+    const b64 = data.image.split(",")[1];
+    const imgBuf = Buffer.from(b64, "base64");
+
+    await bot.sendPhoto(stored.chatId, imgBuf, {
+      caption: `yo'd. (${color})\n\nget yo'd: ${SITE_URL}`,
+      reply_to_message_id: stored.msgId,
+    }, { filename: "yod.png", contentType: "image/png" });
+
+    saveToGallery(data.image);
+    try { await bot.deleteMessage(stored.chatId, status.message_id); } catch {}
+  } catch (err) {
+    console.error("[yoify-bot]", err.message);
+    try { await bot.deleteMessage(stored.chatId, status.message_id); } catch {}
+    bot.sendMessage(stored.chatId, `couldn't yo that: ${err.message}`);
+  } finally {
+    yoifyQueue.delete(`lock:${userId}`);
+  }
+});
 
 // auto-greet new members
 bot.on("new_chat_members", (msg) => {
@@ -719,5 +935,16 @@ bot.on("new_chat_members", (msg) => {
     bot.sendMessage(msg.chat.id, `yo ${name}. you said it back. you're in. \u{1F534}`);
   }
 });
+
+// cleanup stale cooldowns every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of cooldowns) if (now - v > COOLDOWN_MS * 2) cooldowns.delete(k);
+  for (const [k, v] of raidCooldowns) if (now - v > RAID_COOLDOWN_MS * 2) raidCooldowns.delete(k);
+  // clean expired yoify queue entries (photos older than 5 min)
+  for (const [k, v] of yoifyQueue) {
+    if (typeof v === "object" && v.chatId && now - (v.ts || 0) > 300_000) yoifyQueue.delete(k);
+  }
+}, 600_000);
 
 console.log("YO bot is live. listening for yo's...");
