@@ -11,6 +11,13 @@ const SOL_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const RAIDS_ENABLED = (process.env.RAIDS_ENABLED || "").toLowerCase() === "true";
 const YOIFY_API = process.env.YOIFY_API || "https://api.justsayyo.xyz/api/yoify-public";
 const YOIFY_COLORS = ["vermilion", "magenta", "emerald", "gold", "ice"];
+const COLOR_ALIASES = { blue: "ice", cyan: "ice", red: "vermilion", green: "emerald", yellow: "gold", pink: "magenta" };
+function resolveColor(input) {
+  if (!input) return null;
+  const lower = input.toLowerCase();
+  if (YOIFY_COLORS.includes(lower)) return lower;
+  return COLOR_ALIASES[lower] || null;
+}
 
 // save yo'd thumbnail to gallery for site background
 async function saveToGallery(dataUrl) {
@@ -829,7 +836,7 @@ what you can do:
 /ca \u2014 official contract (verify before you ape)
 /price \u2014 live $YO price + chart
 /website \u2014 justsayyo.xyz
-/yoify \u2014 send a photo, get yo'd (add color: vermilion, magenta, emerald, gold, ice)
+/yoify \u2014 send a photo, get yo'd (colors: vermilion, magenta, emerald, gold, ice \u2014 or just say red, pink, green, blue)
 /raids \u2014 top raiders (last 3 days)
 /raidshout \u2014 shout out top raiders (admin)
 
@@ -843,7 +850,7 @@ bot.onText(/\/help/, (msg) => bot.sendMessage(msg.chat.id, HELP_TEXT));
 const yoifyQueue = new Map(); // userId -> true (prevent double-tap)
 
 bot.onText(/\/yoify(?:\s+(\w+))?/, (msg, match) => {
-  const color = match[1] && YOIFY_COLORS.includes(match[1].toLowerCase()) ? match[1].toLowerCase() : null;
+  const color = match[1] ? resolveColor(match[1]) : null;
   bot.sendMessage(msg.chat.id,
     `send me a photo and I'll yo it.\n\ncolors: ${YOIFY_COLORS.join(", ")}${color ? `\n\nusing: ${color}` : ""}`,
     { reply_to_message_id: msg.message_id }
@@ -860,7 +867,8 @@ bot.on("photo", async (msg) => {
   let color = yoifyQueue.get(userId) || null;
   if (msg.caption) {
     const lower = msg.caption.toLowerCase().trim();
-    const found = YOIFY_COLORS.find(c => lower.includes(c));
+    const words = lower.split(/\s+/);
+    const found = words.map(resolveColor).find(Boolean);
     if (found) color = found;
   }
   yoifyQueue.delete(userId);
