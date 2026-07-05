@@ -11,6 +11,13 @@ const SOL_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const RAIDS_ENABLED = (process.env.RAIDS_ENABLED || "").toLowerCase() === "true";
 const YOIFY_API = process.env.YOIFY_API || "https://api.justsayyo.xyz/api/yoify-public";
 const YOIFY_COLORS = ["vermilion", "magenta", "emerald", "gold", "ice"];
+function shareToXUrl(color) {
+  const text = `just got yo'd. (${color})\n\nget yours: ${SITE_URL}\n\n$YO`;
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+}
+const SHARE_X_MARKUP = (color) => ({
+  reply_markup: { inline_keyboard: [[{ text: "share to X", url: shareToXUrl(color) }]] },
+});
 const COLOR_ALIASES = { blue: "ice", cyan: "ice", red: "vermilion", green: "emerald", yellow: "gold", pink: "magenta" };
 function resolveColor(input) {
   if (!input) return null;
@@ -924,6 +931,7 @@ bot.on("photo", async (msg) => {
     await bot.sendPhoto(chatId, imgBuf, {
       caption: `yo'd. (${color})\n\nget yo'd: ${SITE_URL}`,
       reply_to_message_id: msg.message_id,
+      ...SHARE_X_MARKUP(color),
     }, { filename: "yod.png", contentType: "image/png" });
 
     saveToGallery(data.image);
@@ -985,6 +993,7 @@ bot.on("callback_query", async (query) => {
     await bot.sendPhoto(stored.chatId, imgBuf, {
       caption: `yo'd. (${color})\n\nget yo'd: ${SITE_URL}`,
       reply_to_message_id: stored.msgId,
+      ...SHARE_X_MARKUP(color),
     }, { filename: "yod.png", contentType: "image/png" });
 
     saveToGallery(data.image);
