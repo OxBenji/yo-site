@@ -242,6 +242,22 @@ async function isAdmin(chatId, userId) {
 // load CA from DB on startup
 loadCA();
 
+// ============ RANDOM YO-BACK REPLIES ============
+
+const YO_REPLIES = [
+  "yo.",
+  "said it back.",
+  "heard.",
+  "yo \u{1F534}",
+  "the culture.",
+  "one of us.",
+  "yo yo yo.",
+  "this is the way.",
+  "say it louder.",
+  "never stop.",
+];
+const YO_REPLY_CHANCE = 0.1; // 10% chance to reply
+
 // ============ YO MESSAGE HANDLER ============
 
 bot.on("message", async (msg) => {
@@ -291,6 +307,10 @@ bot.on("message", async (msg) => {
         `\u{1F534} ${count.toLocaleString()} yo's. say it back.`,
         { reply_to_message_id: msg.message_id }
       );
+    } else if (Math.random() < YO_REPLY_CHANCE) {
+      // random yo-back
+      const reply = YO_REPLIES[Math.floor(Math.random() * YO_REPLIES.length)];
+      bot.sendMessage(msg.chat.id, reply, { reply_to_message_id: msg.message_id });
     }
   } catch (err) {
     console.error("bot error:", err.message);
@@ -577,6 +597,51 @@ bot.onText(/\/price/, async (msg) => {
   } catch (err) {
     console.error("price error:", err.message);
     bot.sendMessage(msg.chat.id, "\u{1F534} couldn't fetch price. try again.");
+  }
+});
+
+// /holders — live holder count + top 5 from on-chain
+bot.onText(/\/holders/, async (msg) => {
+  try {
+    const res = await fetch("https://api.dexscreener.com/latest/dex/tokens/ornwNKzfS4FFQ81ibSfZLvTwUXgETnsG3YpUxyoPumP");
+    const data = await res.json();
+    const pair = data.pairs?.[0];
+
+    // Get holder count from Helius DAS API
+    const heliusRes = await fetch("https://mainnet.helius-rpc.com/?api-key=5b54563d-d809-4b36-9788-3f838e1dd6a4", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 1,
+        method: "getTokenLargestAccounts",
+        params: ["ornwNKzfS4FFQ81ibSfZLvTwUXgETnsG3YpUxyoPumP"],
+      }),
+    });
+    const heliusData = await heliusRes.json();
+    const accounts = (heliusData.result?.value || []).filter(a => parseFloat(a.uiAmountString) > 0);
+
+    let text = `\u{1F534} $YO holders\n\n`;
+    text += `holders: ${accounts.length}+\n`;
+    if (pair) {
+      text += `price: $${parseFloat(pair.priceUsd) < 0.01 ? parseFloat(pair.priceUsd).toExponential(2) : parseFloat(pair.priceUsd).toFixed(4)}\n`;
+      text += `mcap: $${pair.fdv ? Math.floor(pair.fdv).toLocaleString() : "n/a"}\n\n`;
+    }
+
+    text += `top 5:\n`;
+    const top5 = accounts.slice(0, 5);
+    for (let i = 0; i < top5.length; i++) {
+      const a = top5[i];
+      const bal = parseFloat(a.uiAmountString);
+      const pct = (bal / 1e9 * 100).toFixed(1);
+      const addr = a.address.slice(0, 6) + "..." + a.address.slice(-4);
+      text += `${i + 1}. ${addr} \u2014 ${pct}%\n`;
+    }
+
+    text += `\nhttps://pump.fun/coin/ornwNKzfS4FFQ81ibSfZLvTwUXgETnsG3YpUxyoPumP`;
+    bot.sendMessage(msg.chat.id, text);
+  } catch (err) {
+    console.error("holders error:", err.message);
+    bot.sendMessage(msg.chat.id, "\u{1F534} couldn't fetch holder data. try again.");
   }
 });
 
@@ -935,6 +1000,77 @@ bot.on("new_chat_members", (msg) => {
     bot.sendMessage(msg.chat.id, `yo ${name}. you said it back. you're in. \u{1F534}`);
   }
 });
+
+// ============ DAILY RECAP (midnight UTC) ============
+
+const RECAP_CHAT_ID = process.env.RECAP_CHAT_ID; // TG group to post recap in
+
+async function postDailyRecap() {
+  if (!RECAP_CHAT_ID) return;
+  try {
+    const todaySince = todayUTC();
+    const yesterdaySince = daysAgo(1);
+
+    // get yesterday's stats (recap is for the day that just ended)
+    const { count: yesterdayCount } = await supabase
+      .from("tg_yo_log")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", yesterdaySince)
+      .lt("created_at", todaySince);
+
+    const allTime = await allTimeCount();
+    const loud = await loudestSince(yesterdaySince);
+
+    // top 3 of the day
+    const { data: topData } = await supabase
+      .from("tg_yo_log")
+      .select("username")
+      .gte("created_at", yesterdaySince)
+      .lt("created_at", todaySince);
+
+    let top3Text = "";
+    if (topData?.length) {
+      const counts = {};
+      for (const r of topData) {
+        const key = r.username || "_anon";
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      const top3 = Object.entries(counts)
+        .filter(([k]) => k !== "_anon")
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3);
+      if (top3.length) {
+        top3Text = top3.map(([u, c], i) => `${["🥇","🥈","🥉"][i]} @${u} — ${c}`).join("\n");
+      }
+    }
+
+    let text = `\u{1F534} DAILY RECAP\n\n`;
+    text += `yesterday: ${fmt(yesterdayCount || 0)} yo's\n`;
+    text += `all-time: ${fmt(allTime)}\n`;
+    if (top3Text) text += `\nloudest:\n${top3Text}\n`;
+    text += `\nsay yo today. don't break the streak.`;
+
+    bot.sendMessage(RECAP_CHAT_ID, text);
+  } catch (err) {
+    console.error("recap error:", err.message);
+  }
+}
+
+// Schedule recap at midnight UTC
+function scheduleRecap() {
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setUTCHours(24, 0, 5, 0); // 5 seconds past midnight
+  const ms = midnight - now;
+  setTimeout(() => {
+    postDailyRecap();
+    // then repeat every 24h
+    setInterval(postDailyRecap, 86_400_000);
+  }, ms);
+  console.log(`  daily recap scheduled in ${Math.floor(ms / 60000)}m (midnight UTC)`);
+}
+
+scheduleRecap();
 
 // cleanup stale cooldowns every 10 minutes
 setInterval(() => {
