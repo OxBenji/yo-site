@@ -1,6 +1,7 @@
 import "dotenv/config";
 import TelegramBot from "node-telegram-bot-api";
 import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -56,7 +57,9 @@ if (!TOKEN || !SUPABASE_URL || !SUPABASE_KEY) {
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  realtime: { transport: ws },
+});
 const bot = new TelegramBot(TOKEN, {
   polling: { interval: 1000, params: { timeout: 30 } },
 });
