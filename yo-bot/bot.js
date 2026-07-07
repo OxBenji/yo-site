@@ -1,3 +1,4 @@
+import "dotenv/config";
 import TelegramBot from "node-telegram-bot-api";
 import { createClient } from "@supabase/supabase-js";
 
@@ -337,7 +338,7 @@ bot.on("message", async (msg) => {
 bot.onText(/\/yos/, async (msg) => {
   try {
     const n = await allTimeCount();
-    bot.sendMessage(msg.chat.id, `\u{1F534} ${fmt(n)} yo's. say it back.`);
+    bot.sendMessage(msg.chat.id, `\u{1F534} <b>${fmt(n)} yo's.</b> say it back.`, { parse_mode: "HTML" });
   } catch (err) {
     console.error("yos error:", err.message);
   }
@@ -355,9 +356,9 @@ bot.onText(/\/stats/, async (msg) => {
       loudestSince(todaySince),
     ]);
 
-    let text = `\u{1F534} YO stats\n\ntoday: ${fmt(today)}\nthis week: ${fmt(week)}\nthis month: ${fmt(month)}\nall-time: ${fmt(allTime)}`;
-    if (loud) text += `\n\nloudest today: @${loud.username} (${loud.count})`;
-    bot.sendMessage(msg.chat.id, text);
+    let text = `\u{1F534} <b>YO stats</b>\n\ntoday: <b>${fmt(today)}</b>\nthis week: <b>${fmt(week)}</b>\nthis month: <b>${fmt(month)}</b>\nall-time: <b>${fmt(allTime)}</b>`;
+    if (loud) text += `\n\nloudest today: @${loud.username} (<b>${loud.count}</b>)`;
+    bot.sendMessage(msg.chat.id, text, { parse_mode: "HTML" });
   } catch (err) {
     console.error("stats error:", err.message);
   }
@@ -367,7 +368,7 @@ bot.onText(/\/stats/, async (msg) => {
 bot.onText(/\/today/, async (msg) => {
   try {
     const n = await countSince(todayUTC());
-    bot.sendMessage(msg.chat.id, `\u{1F534} today: ${fmt(n)} yo's`);
+    bot.sendMessage(msg.chat.id, `\u{1F534} today: <b>${fmt(n)} yo's</b>`, { parse_mode: "HTML" });
   } catch (err) {
     console.error("today error:", err.message);
   }
@@ -377,7 +378,7 @@ bot.onText(/\/today/, async (msg) => {
 bot.onText(/\/week/, async (msg) => {
   try {
     const n = await countSince(daysAgo(7));
-    bot.sendMessage(msg.chat.id, `\u{1F534} this week: ${fmt(n)} yo's`);
+    bot.sendMessage(msg.chat.id, `\u{1F534} this week: <b>${fmt(n)} yo's</b>`, { parse_mode: "HTML" });
   } catch (err) {
     console.error("week error:", err.message);
   }
@@ -387,7 +388,7 @@ bot.onText(/\/week/, async (msg) => {
 bot.onText(/\/month/, async (msg) => {
   try {
     const n = await countSince(daysAgo(30));
-    bot.sendMessage(msg.chat.id, `\u{1F534} this month: ${fmt(n)} yo's`);
+    bot.sendMessage(msg.chat.id, `\u{1F534} this month: <b>${fmt(n)} yo's</b>`, { parse_mode: "HTML" });
   } catch (err) {
     console.error("month error:", err.message);
   }
@@ -463,7 +464,7 @@ bot.onText(/\/leaderboard/, async (msg) => {
       return `${rank} ${name} \u2014 ${r.yo_count} yo's`;
     });
 
-    let text = "\u{1F534} YO LEADERBOARD\n\n" + lines.join("\n");
+    let text = "\u{1F534} <b>YO LEADERBOARD</b>\n\n" + lines.join("\n");
 
     // add caller's rank if not in top 10
     const callerId = msg.from.id;
@@ -472,12 +473,12 @@ bot.onText(/\/leaderboard/, async (msg) => {
       const { rank, count } = await getUserRank(callerId);
       if (count > 0) {
         const callerName = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || "you";
-        text += `\n\n${callerName}: #${rank} \u2014 ${count} yo's`;
+        text += `\n\n${callerName}: #${rank} \u2014 <b>${count}</b> yo's`;
       }
     }
 
     if (LEADERBOARD_URL) text += `\n\n${LEADERBOARD_URL}`;
-    bot.sendMessage(msg.chat.id, text);
+    bot.sendMessage(msg.chat.id, text, { parse_mode: "HTML" });
   } catch (err) {
     console.error("leaderboard error:", err.message);
   }
@@ -532,7 +533,7 @@ bot.onText(/\/milestones/, async (msg) => {
 // /ca — contract address (read from config)
 bot.onText(/\/ca$/, (msg) => {
   if (cachedCA) {
-    bot.sendMessage(msg.chat.id, `\u{1F534} official $YO CA:\n\`${cachedCA}\`\n\nonly this one. verify before you ape.`, { parse_mode: "Markdown" });
+    bot.sendMessage(msg.chat.id, `\u{1F534} <b>official $YO CA:</b>\n<code>${cachedCA}</code>\n\nonly this one. verify before you ape.`, { parse_mode: "HTML" });
   } else {
     bot.sendMessage(msg.chat.id, "\u{1F534} not live yet. CA drops at launch \u2014 only trust what's posted here.");
   }
@@ -561,7 +562,7 @@ bot.onText(/\/setca(?:\s+(.+))?/, async (msg, match) => {
 
   try {
     await saveCA(address);
-    bot.sendMessage(chatId, `\u{1F534} CA set \u2705\n\`${address}\`\n\nthis is now the official /ca. verify before you ape.`, { parse_mode: "Markdown" });
+    bot.sendMessage(chatId, `\u{1F534} CA set \u2705\n<code>${address}</code>\n\nthis is now the official /ca. verify before you ape.`, { parse_mode: "HTML" });
   } catch (err) {
     console.error("setca error:", err.message);
     bot.sendMessage(chatId, "\u{1F534} error saving CA. try again.");
@@ -601,13 +602,13 @@ bot.onText(/\/price/, async (msg) => {
     const vol = p.volume?.h24 ? `$${Math.floor(p.volume.h24).toLocaleString()}` : "n/a";
     const chg = p.priceChange?.h24 != null ? `${p.priceChange.h24 > 0 ? "+" : ""}${p.priceChange.h24}%` : "n/a";
 
-    let text = `\u{1F534} $YO price\n\n`;
-    text += `price: $${price < 0.01 ? price.toExponential(2) : price.toFixed(4)}\n`;
-    text += `mcap: ${mc}\n`;
-    text += `24h vol: ${vol}\n`;
-    text += `24h: ${chg}\n\n`;
+    let text = `\u{1F534} <b>$YO price</b>\n\n`;
+    text += `price: <b>$${price < 0.01 ? price.toExponential(2) : price.toFixed(4)}</b>\n`;
+    text += `mcap: <b>${mc}</b>\n`;
+    text += `24h vol: <b>${vol}</b>\n`;
+    text += `24h: <b>${chg}</b>\n\n`;
     text += `https://dexscreener.com/solana/ornwNKzfS4FFQ81ibSfZLvTwUXgETnsG3YpUxyoPumP`;
-    bot.sendMessage(msg.chat.id, text);
+    bot.sendMessage(msg.chat.id, text, { parse_mode: "HTML" });
   } catch (err) {
     console.error("price error:", err.message);
     bot.sendMessage(msg.chat.id, "\u{1F534} couldn't fetch price. try again.");
@@ -634,25 +635,25 @@ bot.onText(/\/holders/, async (msg) => {
     const heliusData = await heliusRes.json();
     const accounts = (heliusData.result?.value || []).filter(a => parseFloat(a.uiAmountString) > 0);
 
-    let text = `\u{1F534} $YO holders\n\n`;
-    text += `holders: ${accounts.length}+\n`;
+    let text = `\u{1F534} <b>$YO holders</b>\n\n`;
+    text += `holders: <b>${accounts.length}+</b>\n`;
     if (pair) {
-      text += `price: $${parseFloat(pair.priceUsd) < 0.01 ? parseFloat(pair.priceUsd).toExponential(2) : parseFloat(pair.priceUsd).toFixed(4)}\n`;
-      text += `mcap: $${pair.fdv ? Math.floor(pair.fdv).toLocaleString() : "n/a"}\n\n`;
+      text += `price: <b>$${parseFloat(pair.priceUsd) < 0.01 ? parseFloat(pair.priceUsd).toExponential(2) : parseFloat(pair.priceUsd).toFixed(4)}</b>\n`;
+      text += `mcap: <b>$${pair.fdv ? Math.floor(pair.fdv).toLocaleString() : "n/a"}</b>\n\n`;
     }
 
-    text += `top 5:\n`;
+    text += `<b>top 5:</b>\n`;
     const top5 = accounts.slice(0, 5);
     for (let i = 0; i < top5.length; i++) {
       const a = top5[i];
       const bal = parseFloat(a.uiAmountString);
       const pct = (bal / 1e9 * 100).toFixed(1);
       const addr = a.address.slice(0, 6) + "..." + a.address.slice(-4);
-      text += `${i + 1}. ${addr} \u2014 ${pct}%\n`;
+      text += `${i + 1}. <code>${addr}</code> \u2014 ${pct}%\n`;
     }
 
     text += `\nhttps://pump.fun/coin/ornwNKzfS4FFQ81ibSfZLvTwUXgETnsG3YpUxyoPumP`;
-    bot.sendMessage(msg.chat.id, text);
+    bot.sendMessage(msg.chat.id, text, { parse_mode: "HTML" });
   } catch (err) {
     console.error("holders error:", err.message);
     bot.sendMessage(msg.chat.id, "\u{1F534} couldn't fetch holder data. try again.");
@@ -677,9 +678,9 @@ bot.onText(/\/myyo/, async (msg) => {
     bot.sendMessage(
       msg.chat.id,
       count > 0
-        ? `you've said yo ${count} time${count === 1 ? "" : "s"}.`
+        ? `you've said yo <b>${fmt(count)}</b> time${count === 1 ? "" : "s"}.`
         : "you haven't said yo yet. say it.",
-      { reply_to_message_id: msg.message_id }
+      { reply_to_message_id: msg.message_id, parse_mode: "HTML" }
     );
   } catch (err) {
     console.error("myyo error:", err.message);
@@ -843,7 +844,7 @@ what you can do:
 /ca \u2014 official contract (verify before you ape)
 /price \u2014 live $YO price + chart
 /website \u2014 justsayyo.xyz
-/yoify \u2014 send a photo, get yo'd (colors: vermilion, magenta, emerald, gold, ice \u2014 or just say red, pink, green, blue)
+/yo \u2014 send a photo with this caption, or reply to a photo (4/day)
 /raids \u2014 top raiders (last 3 days)
 /raidshout \u2014 shout out top raiders (admin)
 
@@ -852,37 +853,129 @@ say yo. that's the whole religion. \u{1F534}`;
 bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, HELP_TEXT));
 bot.onText(/\/help/, (msg) => bot.sendMessage(msg.chat.id, HELP_TEXT));
 
-// ============ GET YO'D (photo handler) ============
+// ============ GET YO'D (opt-in via /getyod) ============
 
-const yoifyQueue = new Map(); // userId -> true (prevent double-tap)
+const yoifyQueue = new Map(); // userId -> photo/lock state
+const YOIFY_DAILY_LIMIT = 4;
 
-bot.onText(/\/yoify(?:\s+(\w+))?/, (msg, match) => {
-  const color = match[1] ? resolveColor(match[1]) : null;
-  bot.sendMessage(msg.chat.id,
-    `send me a photo and I'll yo it.\n\ncolors: ${YOIFY_COLORS.join(", ")}${color ? `\n\nusing: ${color}` : ""}`,
-    { reply_to_message_id: msg.message_id }
-  );
-  // store color preference if provided
-  if (color) yoifyQueue.set(msg.from.id, color);
-});
+async function getYoifyUsesToday(userId) {
+  try {
+    const { count, error } = await supabase
+      .from("yoify_log")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .gte("created_at", todayUTC());
+    if (error) { console.error("yoify_log count error:", error.message); return 0; }
+    return count || 0;
+  } catch { return 0; }
+}
 
-bot.on("photo", async (msg) => {
+async function recordYoifyUse(userId) {
+  try {
+    await supabase.from("yoify_log").insert({ user_id: userId });
+  } catch (e) { console.error("yoify_log insert error:", e.message); }
+}
+
+// /yo <color> as a reply to an existing photo (opt-in get-yo'd)
+bot.onText(/\/yo(?:@\w+)?(?:\s+(\w+))?$/, async (msg, match) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  // check caption for color
-  let color = yoifyQueue.get(userId) || null;
-  if (msg.caption) {
-    const lower = msg.caption.toLowerCase().trim();
-    const words = lower.split(/\s+/);
-    const found = words.map(resolveColor).find(Boolean);
-    if (found) color = found;
-  }
-  yoifyQueue.delete(userId);
+  // If this message has a photo, the photo handler below takes care of it
+  if (msg.photo) return;
 
-  // if no color chosen, show inline buttons
+  const replyMsg = msg.reply_to_message;
+  if (!replyMsg?.photo) {
+    bot.sendMessage(chatId,
+      `send a photo with /yo as the caption, or reply to a photo with /yo.\n\ncolors: ${YOIFY_COLORS.join(", ")}`,
+      { reply_to_message_id: msg.message_id });
+    return;
+  }
+
+  const usesToday = await getYoifyUsesToday(userId);
+  if (usesToday >= YOIFY_DAILY_LIMIT) {
+    bot.sendMessage(chatId, "\u{1F534} out of yo's for today, come back tomorrow.", { reply_to_message_id: msg.message_id });
+    return;
+  }
+
+  const color = match[1] ? resolveColor(match[1]) : null;
+  const photo = replyMsg.photo[replyMsg.photo.length - 1];
+
   if (!color) {
-    // store photo file_id for later
+    yoifyQueue.set(`photo:${userId}`, { fileId: photo.file_id, msgId: replyMsg.message_id, chatId });
+    const buttons = YOIFY_COLORS.map(c => ({ text: c, callback_data: `yoify:${c}` }));
+    bot.sendMessage(chatId, "pick a color:", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: { inline_keyboard: [buttons] },
+    });
+    return;
+  }
+
+  if (yoifyQueue.get(`lock:${userId}`)) {
+    bot.sendMessage(chatId, "hold up \u2014 still yo'ing your last one.", { reply_to_message_id: msg.message_id });
+    return;
+  }
+  yoifyQueue.set(`lock:${userId}`, true);
+
+  const status = await bot.sendMessage(chatId, `yo'ing in ${color}... ~30-60s`, { reply_to_message_id: msg.message_id });
+
+  try {
+    const file = await bot.getFile(photo.file_id);
+    const fileUrl = `https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`;
+    const res = await fetch(fileUrl);
+    if (!res.ok) throw new Error("failed to download photo");
+    const buf = Buffer.from(await res.arrayBuffer());
+    const dataUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
+
+    const apiRes = await fetch(YOIFY_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: dataUrl, color }),
+    });
+    const data = await apiRes.json();
+    if (!apiRes.ok) throw new Error(data.error || "generation failed");
+
+    const b64 = data.image.split(",")[1];
+    const imgBuf = Buffer.from(b64, "base64");
+
+    await bot.sendPhoto(chatId, imgBuf, {
+      caption: `yo'd. (${color})\n\nget yo'd: ${SITE_URL}`,
+      reply_to_message_id: replyMsg.message_id,
+      ...SHARE_X_MARKUP(color),
+    }, { filename: "yod.png", contentType: "image/png" });
+
+    await recordYoifyUse(userId);
+    saveToGallery(data.image);
+    try { await bot.deleteMessage(chatId, status.message_id); } catch {}
+  } catch (err) {
+    console.error("[yoify-bot]", err.message);
+    try { await bot.deleteMessage(chatId, status.message_id); } catch {}
+    bot.sendMessage(chatId, `couldn't yo that: ${err.message}`, { reply_to_message_id: msg.message_id });
+  } finally {
+    yoifyQueue.delete(`lock:${userId}`);
+  }
+});
+
+// Photo with /yo caption — opt-in only
+bot.on("photo", async (msg) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const caption = (msg.caption || "").trim();
+
+  // ONLY process photos with /yo caption
+  if (!/^\/yo\b/i.test(caption)) return;
+
+  const usesToday = await getYoifyUsesToday(userId);
+  if (usesToday >= YOIFY_DAILY_LIMIT) {
+    bot.sendMessage(chatId, "\u{1F534} out of yo's for today, come back tomorrow.", { reply_to_message_id: msg.message_id });
+    return;
+  }
+
+  // parse color from caption, e.g. "/yo magenta"
+  const colorArg = caption.replace(/^\/yo(?:@\w+)?\s*/i, "").trim();
+  const color = colorArg ? resolveColor(colorArg) : null;
+
+  if (!color) {
     const photo = msg.photo[msg.photo.length - 1];
     yoifyQueue.set(`photo:${userId}`, { fileId: photo.file_id, msgId: msg.message_id, chatId });
     const buttons = YOIFY_COLORS.map(c => ({ text: c, callback_data: `yoify:${c}` }));
@@ -893,9 +986,8 @@ bot.on("photo", async (msg) => {
     return;
   }
 
-  // prevent spam
   if (yoifyQueue.get(`lock:${userId}`)) {
-    bot.sendMessage(chatId, "hold up — still yo'ing your last one.", { reply_to_message_id: msg.message_id });
+    bot.sendMessage(chatId, "hold up \u2014 still yo'ing your last one.", { reply_to_message_id: msg.message_id });
     return;
   }
   yoifyQueue.set(`lock:${userId}`, true);
@@ -903,18 +995,15 @@ bot.on("photo", async (msg) => {
   const status = await bot.sendMessage(chatId, "yo'ing... ~30-60s", { reply_to_message_id: msg.message_id });
 
   try {
-    // get highest res photo
     const photo = msg.photo[msg.photo.length - 1];
     const file = await bot.getFile(photo.file_id);
     const fileUrl = `https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`;
 
-    // download and convert to base64
     const res = await fetch(fileUrl);
     if (!res.ok) throw new Error("failed to download photo");
     const buf = Buffer.from(await res.arrayBuffer());
     const dataUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
 
-    // call yoify API
     const apiRes = await fetch(YOIFY_API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -924,7 +1013,6 @@ bot.on("photo", async (msg) => {
     const data = await apiRes.json();
     if (!apiRes.ok) throw new Error(data.error || "generation failed");
 
-    // extract base64 and send as photo
     const b64 = data.image.split(",")[1];
     const imgBuf = Buffer.from(b64, "base64");
 
@@ -934,8 +1022,8 @@ bot.on("photo", async (msg) => {
       ...SHARE_X_MARKUP(color),
     }, { filename: "yod.png", contentType: "image/png" });
 
+    await recordYoifyUse(userId);
     saveToGallery(data.image);
-    // delete the "yo'ing..." message
     try { await bot.deleteMessage(chatId, status.message_id); } catch {}
   } catch (err) {
     console.error("[yoify-bot]", err.message);
@@ -958,10 +1046,17 @@ bot.on("callback_query", async (query) => {
   try { await bot.deleteMessage(query.message.chat.id, query.message.message_id); } catch {}
 
   if (!stored) {
-    bot.sendMessage(query.message.chat.id, "photo expired — send it again.");
+    bot.sendMessage(query.message.chat.id, "photo expired \u2014 send it again.");
     return;
   }
   yoifyQueue.delete(`photo:${userId}`);
+
+  // daily limit check (re-check at generation time)
+  const usesToday = await getYoifyUsesToday(userId);
+  if (usesToday >= YOIFY_DAILY_LIMIT) {
+    bot.sendMessage(stored.chatId, "\u{1F534} out of yo's for today, come back tomorrow.");
+    return;
+  }
 
   if (yoifyQueue.get(`lock:${userId}`)) {
     bot.sendMessage(stored.chatId, "hold up — still yo'ing your last one.");
@@ -996,6 +1091,7 @@ bot.on("callback_query", async (query) => {
       ...SHARE_X_MARKUP(color),
     }, { filename: "yod.png", contentType: "image/png" });
 
+    await recordYoifyUse(userId);
     saveToGallery(data.image);
     try { await bot.deleteMessage(stored.chatId, status.message_id); } catch {}
   } catch (err) {
