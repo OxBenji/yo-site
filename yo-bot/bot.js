@@ -8,8 +8,6 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const SITE_URL = process.env.SITE_URL || "https://justsayyo.xyz";
 const LEADERBOARD_URL = process.env.LEADERBOARD_URL || `${SITE_URL}/leaderboard.html`;
-let cachedCA = process.env.CONTRACT_ADDRESS || "";
-const SOL_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const RAIDS_ENABLED = (process.env.RAIDS_ENABLED || "").toLowerCase() === "true";
 const YOIFY_API = process.env.YOIFY_API || "https://api.justsayyo.xyz/api/yoify-public";
 const YOIFY_COLORS = ["vermilion", "magenta", "emerald", "gold", "ice"];
@@ -223,31 +221,6 @@ function nextMilestone(n) {
   return Math.ceil((n + 1) / step) * step;
 }
 
-// --- CA config helpers ---
-
-async function loadCA() {
-  try {
-    const { data } = await supabase
-      .from("app_config")
-      .select("value")
-      .eq("key", "yo_ca")
-      .single();
-    if (data?.value) cachedCA = data.value;
-  } catch (e) {
-    // table may not exist yet, fall back to env
-  }
-}
-
-async function saveCA(address) {
-  cachedCA = address;
-  await supabase.from("app_config").upsert({ key: "yo_ca", value: address });
-}
-
-async function clearCA() {
-  cachedCA = "";
-  await supabase.from("app_config").upsert({ key: "yo_ca", value: "" });
-}
-
 async function isAdmin(chatId, userId) {
   try {
     const member = await bot.getChatMember(chatId, userId);
@@ -256,9 +229,6 @@ async function isAdmin(chatId, userId) {
     return false;
   }
 }
-
-// load CA from DB on startup
-loadCA();
 
 // ============ RANDOM YO-BACK REPLIES ============
 
@@ -533,63 +503,6 @@ bot.onText(/\/milestones/, async (msg) => {
   }
 });
 
-// /ca — contract address (read from config)
-bot.onText(/\/ca$/, (msg) => {
-  if (cachedCA) {
-    bot.sendMessage(msg.chat.id, `\u{1F534} <b>official $YO CA:</b>\n<code>${cachedCA}</code>\n\nonly this one. verify before you ape.`, { parse_mode: "HTML" });
-  } else {
-    bot.sendMessage(msg.chat.id, "\u{1F534} not live yet. CA drops at launch \u2014 only trust what's posted here.");
-  }
-});
-
-// /setca <address> — admins only, saves to Supabase
-bot.onText(/\/setca(?:\s+(.+))?/, async (msg, match) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
-
-  if (!(await isAdmin(chatId, userId))) {
-    bot.sendMessage(chatId, "\u{1F534} admins only.");
-    return;
-  }
-
-  const address = (match[1] || "").trim();
-  if (!address) {
-    bot.sendMessage(chatId, "\u{1F534} usage: /setca <solana address>");
-    return;
-  }
-
-  if (!SOL_ADDR_RE.test(address)) {
-    bot.sendMessage(chatId, "\u{1F534} that doesn't look like a valid solana address. check and try again.");
-    return;
-  }
-
-  try {
-    await saveCA(address);
-    bot.sendMessage(chatId, `\u{1F534} CA set \u2705\n<code>${address}</code>\n\nthis is now the official /ca. verify before you ape.`, { parse_mode: "HTML" });
-  } catch (err) {
-    console.error("setca error:", err.message);
-    bot.sendMessage(chatId, "\u{1F534} error saving CA. try again.");
-  }
-});
-
-// /clearca — admins only, wipe CA
-bot.onText(/\/clearca/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
-
-  if (!(await isAdmin(chatId, userId))) {
-    bot.sendMessage(chatId, "\u{1F534} admins only.");
-    return;
-  }
-
-  try {
-    await clearCA();
-    bot.sendMessage(chatId, "\u{1F534} CA cleared.");
-  } catch (err) {
-    console.error("clearca error:", err.message);
-  }
-});
-
 // /price — live token price from DexScreener
 bot.onText(/\/price/, async (msg) => {
   try {
@@ -844,7 +757,6 @@ what you can do:
 /leaderboard \u2014 top yo'ers + your spot
 /raiders \u2014 the real ones (loyalty, not spam)
 /milestones \u2014 how close to the next goal
-/ca \u2014 official contract (verify before you ape)
 /price \u2014 live $YO price + chart
 /website \u2014 justsayyo.xyz
 /yo \u2014 send a photo with this caption, or reply to a photo (4/day)
@@ -1106,14 +1018,16 @@ bot.on("callback_query", async (query) => {
   }
 });
 
-// auto-greet new members
+// auto-greet new members (once per user)
+const greeted = new Set();
 bot.on("new_chat_members", (msg) => {
   for (const member of msg.new_chat_members) {
-    if (member.is_bot) continue;
+    if (member.is_bot || greeted.has(member.id)) continue;
+    greeted.add(member.id);
     const name = member.username
       ? `@${member.username}`
       : member.first_name || "anon";
-    bot.sendMessage(msg.chat.id, `yo ${name}. you said it back. you're in. \u{1F534}`);
+    bot.sendMessage(msg.chat.id, `yo ${name}. say it back. \u{1F534}`);
   }
 });
 
