@@ -63,39 +63,29 @@ function makeCacheKey(imgBytes, quality, promptVersion) {
 
 // ---- Config / Prompt ----
 const DEFAULT_MODEL = "gpt-image-1";
-const DEFAULT_VERSION = "v4.1";
+const DEFAULT_VERSION = "v5.0";
 
-const COLOR_PRESETS = {
-  magenta:   { primary: "#FF008C", name: "hot magenta",      accent: "#FFE600", accentName: "cyber yellow" },
-  vermilion: { primary: "#FF2400", name: "vermilion red",    accent: "#FFD700", accentName: "gold" },
-  emerald:   { primary: "#00FF87", name: "emerald green",    accent: "#FFE600", accentName: "cyber yellow" },
-  gold:      { primary: "#FFD700", name: "rich gold",        accent: "#FF008C", accentName: "magenta" },
-  ice:       { primary: "#00F0FF", name: "ice cyan",         accent: "#FF008C", accentName: "magenta" },
-};
-
-function buildPrompt(color) {
-  const c = COLOR_PRESETS[color] || COLOR_PRESETS.magenta;
-  return `Transform the uploaded image into YOIFIED V4 — a luxury street-art meme-coin profile picture. PRESERVE the subject's identity, species, character and recognizable traits. Do NOT replace the subject; transform the SAME subject into the YO universe.
+function buildPrompt() {
+  return `Transform the uploaded image into YOIFIED V5 — a premium dot-matrix / LED-panel meme-coin profile picture. PRESERVE the subject's identity, species, character and recognizable traits. Do NOT replace the subject; transform the SAME subject into the YO universe.
 
 OFFICIAL YO COLOR SYSTEM (strict):
-- Primary: ${c.primary} ${c.name}
+- Dominant: #FFFFFF white — the primary color for text, outlines, and the dot-matrix texture
 - Background: #000000 pure black
-- Text and outlines: #FFFFFF white
-- Optional tiny accent: ${c.accent} ${c.accentName}
-NEVER use a white background.
+- Small accent ONLY: #FF2400 vermilion red — used sparingly for rim light glow, small highlights, or a subtle tint. NOT the dominant color.
+NEVER use a white background. White is for the subject rendering and details, NOT the background.
 
-STYLE: high contrast, pure black background, dramatic ${c.name} rim lighting, distressed poster texture, halftone dot texture, graffiti energy with ${c.name} paint drips and splatter, fashion-campaign composition, premium internet-culture / luxury meme-coin aesthetic. Ultra detailed.
+STYLE: high contrast, pure black background, dot-matrix / LED pixel grid texture (like a digital scoreboard or stadium display), the subject rendered in white dot-matrix points on black with subtle vermilion edge glow. Clean, digital, modern. NOT graffiti or paint drips — think electronic signage, retro LED boards, halftone dots arranged in a grid. Premium internet-culture / luxury meme-coin aesthetic. Ultra detailed.
 
 MANDATORY ELEMENTS (always add):
 - bold black sunglasses on the subject
-- a thick black chain around the neck
-- the official liquid-chrome YO medallion hanging from the chain. The medallion MUST use the official YO logo shape provided in the reference image, and must look molten, glossy, metallic, premium and highly recognizable. The medallion is the visual signature — it is required.
+- a thick chain around the neck (silver/chrome, not colored)
+- the official YO medallion hanging from the chain. The medallion is a circle containing "YO" in the dot-matrix LED style shown in the reference image — white dots on black, clean and geometric. It must look premium, metallic, and highly recognizable. The medallion is the visual signature — it is required.
 
 COMPOSITION: the subject dominates the frame, centered, profile-picture optimized, viral and instantly recognizable as part of the YO universe. 1:1 square, 1024x1024.`;
 }
 
-const LOGO_PATH = path.join(__dirname, "assets", "yo-logo.png");
-const MEDALLION_PATH = path.join(__dirname, "assets", "yo-medallion.png");
+const LOGO_PATH = path.join(__dirname, "assets", "yo-logo-new.jpg");
+const MEDALLION_PATH = path.join(__dirname, "assets", "yo-medallion-new.jpg");
 
 // ---- Helpers ----
 function extractBytes(src) {
@@ -130,13 +120,12 @@ async function getSrcBytes(src) {
 }
 
 // ---- Generate ----
-async function yoifyImage(src, color = "magenta") {
+async function yoifyImage(src) {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not set");
 
   const quality = process.env.YOIFY_QUALITY || "medium";
-  const safeColor = COLOR_PRESETS[color] ? color : "magenta";
   const imgBytes = await getSrcBytes(src);
-  const key = makeCacheKey(imgBytes, quality, DEFAULT_VERSION + ":" + safeColor);
+  const key = makeCacheKey(imgBytes, quality, DEFAULT_VERSION);
 
   const cached = cache.get(key);
   if (cached) {
@@ -150,7 +139,7 @@ async function yoifyImage(src, color = "magenta") {
     toImageFile(MEDALLION_PATH, "yo-medallion.png"),
   ]);
 
-  const prompt = buildPrompt(safeColor);
+  const prompt = buildPrompt();
   const result = await openai().images.edit({
     model: DEFAULT_MODEL,
     image: [subject, logo, medallion],
@@ -164,7 +153,7 @@ async function yoifyImage(src, color = "magenta") {
   const dataUrl = `data:image/png;base64,${b64}`;
 
   cache.set(key, dataUrl);
-  console.log("[yoify] generated", safeColor, key.slice(0, 24));
+  console.log("[yoify] generated", key.slice(0, 24));
 
   return dataUrl;
 }
@@ -183,11 +172,11 @@ app.post("/api/yoify-public", async (req, res) => {
   }
 
   try {
-    const { image, color } = req.body;
+    const { image } = req.body;
     if (!image || !image.startsWith("data:")) {
       return res.status(400).json({ error: "image (data URL) required" });
     }
-    const out = await yoifyImage(image, color);
+    const out = await yoifyImage(image);
     return res.json({ image: out });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "generation failed";
